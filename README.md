@@ -98,3 +98,28 @@ Run unit and integration tests across the caching and rasterization engines:
 ```bash
 cargo test
 ```
+
+---
+
+## 6. Prior Art & Acknowledgements
+
+`kkpdf-zed` is a clean-room, native Rust implementation designed specifically for Zed's GPUI framework. We gratefully acknowledge the open source projects that inspired our workflow and interface concepts:
+
+- **[Zed](https://zed.dev)** ([zed-industries/zed](https://github.com/zed-industries/zed)): The high-performance code editor and GPUI framework powering this experience (GPL-3.0 / Apache-2.0).
+- **[pdfium-render](https://crates.io/crates/pdfium-render)**: Idiomatic Rust FFI bindings to Google Chrome's native Pdfium engine (Apache-2.0 / MIT).
+- **[LaTeX-Workshop](https://github.com/James-Yu/LaTeX-Workshop)** by James Yu (MIT License): Inspired the live-reload debounce strategy and scroll-preserving document refresh workflows for TeX/Typst compilation.
+- **[vscode-pdfviewer](https://github.com/tomoki1207/vscode-pdfviewer)** by tomoki1207 (MIT License): Inspired ergonomic zoom-level scaling increments and toolbar layout patterns.
+- **[typst-preview](https://github.com/Enter-tainer/typst-preview)** by mgt (MIT License): Informed smooth previewer synchronization concepts.
+
+*Note: No third-party source code was copied into this project; all GPUI painters, rasterizer pipelines, and caching layers are original native Rust implementations.*
+
+---
+
+## 7. License
+
+This project is dual-licensed under either:
+
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
+- **GNU General Public License, Version 3.0 or later** ([LICENSE-GPL](LICENSE-GPL) or [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html))
+
+at your option.
