@@ -29,6 +29,10 @@ use std::sync::OnceLock;
 
 static GLOBAL_PDFIUM: OnceLock<Arc<Mutex<SerializedPdfium>>> = OnceLock::new();
 
+/// Maximum dimension (width or height) allowed when rasterizing a PDF page,
+/// preventing out-of-memory denial of service attacks from malicious documents.
+pub const MAX_PAGE_DIMENSION: f32 = 8192.0;
+
 /// Thread-safe wrapper around a Pdfium instance.
 #[derive(Clone)]
 pub struct PdfiumEngine {
@@ -44,19 +48,17 @@ impl Default for PdfiumEngine {
 impl PdfiumEngine {
     /// Creates a new engine handle, sharing the process-level singleton instance.
     pub fn new() -> Self {
-        let inner = GLOBAL_PDFIUM.get_or_init(|| {
-            let pdfium = Self::try_init_pdfium();
-            Arc::new(Mutex::new(SerializedPdfium(pdfium)))
-        });
-        Self {
-            inner: Arc::clone(inner),
-        }
+        let inner = GLOBAL_PDFIUM
+            .get_or_init(|| Arc::new(Mutex::new(SerializedPdfium(Self::init_pdfium()))))
+            .clone();
+
+        Self { inner }
     }
 
     /// Attempts to bind to dynamic `libpdfium.so`, `libpdfium.dylib`, or `pdfium.dll`.
-    fn try_init_pdfium() -> Option<Pdfium> {
-        // 1. Try environment variable override
-        if let Ok(env_path) = std::env::var("PDFIUM_PATH").or_else(|_| std::env::var("PDFIUM_LIB_PATH")) {
+    fn init_pdfium() -> Option<Pdfium> {
+        // 1. Try explicit environment variable PDFIUM_LIB_PATH
+        if let Ok(env_path) = std::env::var("PDFIUM_LIB_PATH") {
             let path = Path::new(&env_path);
             if path.exists() {
                 if let Ok(bindings) = Pdfium::bind_to_library(path) {
@@ -73,29 +75,32 @@ impl PdfiumEngine {
         }
 
         // 3. Try common Linux/macOS shared object locations
-        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/kk376".to_string());
-        let user_local_lib = format!("{home_dir}/.local/lib/libpdfium.so");
-        let user_local_dylib = format!("{home_dir}/.local/lib/libpdfium.dylib");
-
-        let common_paths = [
-            "lib/libpdfium.so",
-            "./lib/libpdfium.so",
-            "../lib/libpdfium.so",
-            "../../lib/libpdfium.so",
-            &user_local_lib,
-            &user_local_dylib,
-            "/usr/lib/libpdfium.so",
-            "/usr/lib64/libpdfium.so",
-            "/usr/local/lib/libpdfium.so",
-            "/opt/homebrew/lib/libpdfium.dylib",
-            "/usr/local/lib/libpdfium.dylib",
+        let mut common_paths: Vec<PathBuf> = vec![
+            PathBuf::from("lib/libpdfium.so"),
+            PathBuf::from("./lib/libpdfium.so"),
+            PathBuf::from("../lib/libpdfium.so"),
+            PathBuf::from("../../lib/libpdfium.so"),
         ];
 
-        for path_str in common_paths {
-            let path = Path::new(path_str);
+        if let Ok(home_dir) = std::env::var("HOME") {
+            if !home_dir.trim().is_empty() {
+                common_paths.push(PathBuf::from(format!("{home_dir}/.local/lib/libpdfium.so")));
+                common_paths.push(PathBuf::from(format!("{home_dir}/.local/lib/libpdfium.dylib")));
+            }
+        }
+
+        common_paths.extend([
+            PathBuf::from("/usr/lib/libpdfium.so"),
+            PathBuf::from("/usr/lib64/libpdfium.so"),
+            PathBuf::from("/usr/local/lib/libpdfium.so"),
+            PathBuf::from("/opt/homebrew/lib/libpdfium.dylib"),
+            PathBuf::from("/usr/local/lib/libpdfium.dylib"),
+        ]);
+
+        for path in &common_paths {
             if path.exists() {
                 if let Ok(bindings) = Pdfium::bind_to_library(path) {
-                    log::info!("Successfully bound to Pdfium at {path_str}");
+                    log::info!("Successfully bound to Pdfium at {}", path.display());
                     return Some(Pdfium::new(bindings));
                 }
             }
@@ -169,11 +174,11 @@ impl PdfiumEngine {
             let target_width =
                 (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
                     .round()
-                    .max(1.0) as i32;
+                    .clamp(1.0, MAX_PAGE_DIMENSION) as i32;
             let target_height =
                 (page.height().value * (options.target_dpi / 72.0) * options.zoom_factor)
                     .round()
-                    .max(1.0) as i32;
+                    .clamp(1.0, MAX_PAGE_DIMENSION) as i32;
 
             let render_config = PdfRenderConfig::new()
                 .set_target_width(target_width)
@@ -229,11 +234,11 @@ impl PdfiumEngine {
                 let target_width =
                     (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
                         .round()
-                        .max(1.0) as i32;
+                        .clamp(1.0, MAX_PAGE_DIMENSION) as i32;
                 let target_height =
                     (page.height().value * (options.target_dpi / 72.0) * options.zoom_factor)
                         .round()
-                        .max(1.0) as i32;
+                        .clamp(1.0, MAX_PAGE_DIMENSION) as i32;
 
                 let render_config = PdfRenderConfig::new()
                     .set_target_width(target_width)
@@ -764,11 +769,11 @@ impl PdfiumEngine {
                 let target_width =
                     (page_w * (options.target_dpi / 72.0) * options.zoom_factor)
                         .round()
-                        .max(1.0) as i32;
+                        .clamp(1.0, MAX_PAGE_DIMENSION) as i32;
                 let target_height =
                     (page_h * (options.target_dpi / 72.0) * options.zoom_factor)
                         .round()
-                        .max(1.0) as i32;
+                        .clamp(1.0, MAX_PAGE_DIMENSION) as i32;
 
                 let render_config = PdfRenderConfig::new()
                     .set_target_width(target_width)
@@ -905,5 +910,18 @@ mod tests {
         assert_eq!(doc.pages.len(), 1);
         assert!(doc.pages[0].width > 0);
         assert!(doc.pages[0].height > 0);
+    }
+
+    #[test]
+    fn test_max_page_dimension_bounds() {
+        assert_eq!(MAX_PAGE_DIMENSION, 8192.0);
+        // Verify clamping logic for extreme/malicious dimensions
+        let huge_dim: f32 = 100_000.0;
+        let clamped = huge_dim.clamp(1.0, MAX_PAGE_DIMENSION);
+        assert_eq!(clamped, 8192.0);
+
+        let tiny_dim: f32 = -50.0;
+        let clamped_tiny = tiny_dim.clamp(1.0, MAX_PAGE_DIMENSION);
+        assert_eq!(clamped_tiny, 1.0);
     }
 }
