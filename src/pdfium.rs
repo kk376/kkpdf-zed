@@ -477,26 +477,96 @@ impl PdfiumEngine {
 
                     let seg_coll = text_page.segments();
                     for seg in seg_coll.iter() {
-                        let text = seg.text().trim().to_string();
-                        if !text.is_empty() {
-                            let bounds = seg.bounds();
-                            let left = bounds.left().value.min(bounds.right().value);
-                            let right = bounds.left().value.max(bounds.right().value);
-                            let bottom = bounds.bottom().value.min(bounds.top().value);
-                            let top = bounds.bottom().value.max(bounds.top().value);
+                        if let Ok(chars) = seg.chars() {
+                            let mut word_text = String::new();
+                            let mut min_left = f32::MAX;
+                            let mut max_right = f32::MIN;
+                            let mut min_bottom = f32::MAX;
+                            let mut max_top = f32::MIN;
+                            let mut has_word_char = false;
 
-                            let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                            let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                            let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                            let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            for ch in chars.iter() {
+                                let u_char = ch.unicode_char();
+                                let is_ws = u_char.map(|c| c.is_whitespace()).unwrap_or(false);
 
-                            segments.push(PdfTextSegment {
-                                text,
-                                x: norm_x,
-                                y: norm_y,
-                                width: norm_w,
-                                height: norm_h,
-                            });
+                                if is_ws {
+                                    if has_word_char && !word_text.is_empty() {
+                                        let norm_x = if page_w > 0.0 { (min_left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                        let norm_y = if page_h > 0.0 { ((page_h - max_top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                        let norm_w = if page_w > 0.0 { ((max_right - min_left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                        let norm_h = if page_h > 0.0 { ((max_top - min_bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                                        if norm_w > 0.0 && norm_h > 0.0 {
+                                            segments.push(PdfTextSegment {
+                                                text: std::mem::take(&mut word_text),
+                                                x: norm_x,
+                                                y: norm_y,
+                                                width: norm_w,
+                                                height: norm_h,
+                                            });
+                                        }
+                                        word_text.clear();
+                                        min_left = f32::MAX;
+                                        max_right = f32::MIN;
+                                        min_bottom = f32::MAX;
+                                        max_top = f32::MIN;
+                                        has_word_char = false;
+                                    }
+                                } else if let Some(c) = u_char {
+                                    word_text.push(c);
+                                    if let Ok(bounds) = ch.loose_bounds().or_else(|_| ch.tight_bounds()) {
+                                        let l = bounds.left().value.min(bounds.right().value);
+                                        let r = bounds.left().value.max(bounds.right().value);
+                                        let b = bounds.bottom().value.min(bounds.top().value);
+                                        let t = bounds.bottom().value.max(bounds.top().value);
+
+                                        min_left = min_left.min(l);
+                                        max_right = max_right.max(r);
+                                        min_bottom = min_bottom.min(b);
+                                        max_top = max_top.max(t);
+                                        has_word_char = true;
+                                    }
+                                }
+                            }
+
+                            if has_word_char && !word_text.is_empty() {
+                                let norm_x = if page_w > 0.0 { (min_left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                let norm_y = if page_h > 0.0 { ((page_h - max_top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                let norm_w = if page_w > 0.0 { ((max_right - min_left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                let norm_h = if page_h > 0.0 { ((max_top - min_bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                                if norm_w > 0.0 && norm_h > 0.0 {
+                                    segments.push(PdfTextSegment {
+                                        text: word_text,
+                                        x: norm_x,
+                                        y: norm_y,
+                                        width: norm_w,
+                                        height: norm_h,
+                                    });
+                                }
+                            }
+                        } else {
+                            let text = seg.text().trim().to_string();
+                            if !text.is_empty() {
+                                let bounds = seg.bounds();
+                                let left = bounds.left().value.min(bounds.right().value);
+                                let right = bounds.left().value.max(bounds.right().value);
+                                let bottom = bounds.bottom().value.min(bounds.top().value);
+                                let top = bounds.bottom().value.max(bounds.top().value);
+
+                                let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                                segments.push(PdfTextSegment {
+                                    text,
+                                    x: norm_x,
+                                    y: norm_y,
+                                    width: norm_w,
+                                    height: norm_h,
+                                });
+                            }
                         }
                     }
                 }
