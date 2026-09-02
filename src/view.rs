@@ -71,12 +71,12 @@ impl PdfView {
     pub fn open_file(&mut self, path: &Path) -> Result<()> {
         let bytes = std::fs::read(path)
             .with_context(|| format!("Failed to read PDF file at {:?}", path))?;
-        
+
         self.debouncer = Some(PdfReloadDebouncer::new(
             path.to_path_buf(),
             self.settings.reload_debounce_ms,
         ));
-        
+
         self.load_from_bytes(bytes, Some(path.to_path_buf()))
     }
 
@@ -84,7 +84,7 @@ impl PdfView {
     pub fn load_from_bytes(&mut self, bytes: Vec<u8>, path: Option<PathBuf>) -> Result<()> {
         let arc_bytes = Arc::new(bytes);
         let doc = self.engine.load_document_from_bytes(&arc_bytes, path)?;
-        
+
         self.raw_bytes = Some(arc_bytes);
         self.document = Some(doc);
         self.cache.clear();
@@ -109,7 +109,7 @@ impl PdfView {
         let snapshot = self.save_state_snapshot();
         self.open_file(&path)?;
         self.restore_state_snapshot(snapshot);
-        
+
         if let Some(ref mut d) = self.debouncer {
             d.mark_reloaded();
         }
@@ -133,7 +133,9 @@ impl PdfView {
     pub fn restore_state_snapshot(&mut self, snapshot: ViewerStateSnapshot) {
         if let Some(ref doc) = self.document {
             if !doc.is_empty() {
-                self.current_page = snapshot.current_page.min(doc.total_pages().saturating_sub(1));
+                self.current_page = snapshot
+                    .current_page
+                    .min(doc.total_pages().saturating_sub(1));
             }
         }
         self.zoom_level = snapshot.zoom_level.clamp(MIN_ZOOM, MAX_ZOOM);
@@ -161,7 +163,8 @@ impl PdfView {
                 self.zoom_level = self.compute_fit_to_width_zoom(container_width, page_dim.width);
             }
             DefaultZoomPolicy::FitPage => {
-                self.zoom_level = self.compute_fit_to_page_zoom(container_width, container_height, page_dim);
+                self.zoom_level =
+                    self.compute_fit_to_page_zoom(container_width, container_height, page_dim);
             }
             DefaultZoomPolicy::ActualSize => {
                 self.zoom_level = 1.0;
@@ -216,7 +219,11 @@ impl PdfView {
     /// Adjusts zoom to fit the current page width.
     pub fn fit_to_width(&mut self) {
         if let Some((container_w, _)) = self.container_size {
-            if let Some(dim) = self.document.as_ref().and_then(|d| d.page_size(self.current_page)) {
+            if let Some(dim) = self
+                .document
+                .as_ref()
+                .and_then(|d| d.page_size(self.current_page))
+            {
                 self.zoom_level = self.compute_fit_to_width_zoom(container_w, dim.width);
                 self.pan_offset = (0.0, 0.0);
             }
@@ -226,7 +233,11 @@ impl PdfView {
     /// Adjusts zoom to fit the current entire page in view.
     pub fn fit_to_page(&mut self) {
         if let Some((container_w, container_h)) = self.container_size {
-            if let Some(dim) = self.document.as_ref().and_then(|d| d.page_size(self.current_page)) {
+            if let Some(dim) = self
+                .document
+                .as_ref()
+                .and_then(|d| d.page_size(self.current_page))
+            {
                 self.zoom_level = self.compute_fit_to_page_zoom(container_w, container_h, dim);
                 self.pan_offset = (0.0, 0.0);
             }
@@ -319,7 +330,8 @@ impl PdfView {
         };
 
         let rendered = if let Some(ref raw) = self.raw_bytes {
-            self.engine.render_page_from_bytes(raw, page_index, options)?
+            self.engine
+                .render_page_from_bytes(raw, page_index, options)?
         } else {
             let dim = self
                 .document
@@ -403,7 +415,8 @@ mod tests {
     fn test_view_page_navigation() {
         let mut view = PdfView::new(PdfViewerSettings::default());
         let dummy_pdf = b"%PDF-1.7\nSample";
-        view.load_from_bytes(dummy_pdf.to_vec(), None).expect("Load");
+        view.load_from_bytes(dummy_pdf.to_vec(), None)
+            .expect("Load");
 
         assert_eq!(view.current_page, 0);
         assert_eq!(view.display_page_number(), 1);
@@ -423,7 +436,8 @@ mod tests {
     fn test_view_cache_and_render_cycle() {
         let mut view = PdfView::new(PdfViewerSettings::default());
         let dummy_pdf = b"%PDF-1.7\nSample";
-        view.load_from_bytes(dummy_pdf.to_vec(), None).expect("Load");
+        view.load_from_bytes(dummy_pdf.to_vec(), None)
+            .expect("Load");
 
         let page = view.get_or_render_page(0).expect("Render page");
         assert!(page.width > 0);

@@ -20,6 +20,9 @@ struct SerializedPdfium(Option<Pdfium>);
 // by a Mutual Exclusion (Mutex) lock, guaranteeing serialized single-thread
 // execution across asynchronous worker threads without race conditions.
 unsafe impl Send for SerializedPdfium {}
+
+// SAFETY: All calls to the internal Pdfium C++ FFI handle are strictly guarded
+// by a Mutual Exclusion (Mutex) lock, guaranteeing synchronized multi-thread access.
 unsafe impl Sync for SerializedPdfium {}
 
 /// Thread-safe wrapper around a Pdfium instance.
@@ -105,7 +108,10 @@ impl PdfiumEngine {
                 pages.push(PageDimensions::new(width, height));
             }
 
-            let title = doc.metadata().get(PdfDocumentMetadataTagType::Title).map(|s| s.value().to_string());
+            let title = doc
+                .metadata()
+                .get(PdfDocumentMetadataTagType::Title)
+                .map(|s| s.value().to_string());
 
             Ok(PdfDocument::new(path, pages, title))
         } else {
@@ -132,12 +138,14 @@ impl PdfiumEngine {
                 .get(page_index as u16)
                 .context("Requested page index out of bounds")?;
 
-            let target_width = (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
-                .round()
-                .max(1.0) as i32;
-            let target_height = (page.height().value * (options.target_dpi / 72.0) * options.zoom_factor)
-                .round()
-                .max(1.0) as i32;
+            let target_width =
+                (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
+                    .round()
+                    .max(1.0) as i32;
+            let target_height =
+                (page.height().value * (options.target_dpi / 72.0) * options.zoom_factor)
+                    .round()
+                    .max(1.0) as i32;
 
             let render_config = PdfRenderConfig::new()
                 .set_target_width(target_width)
@@ -190,7 +198,9 @@ mod tests {
         };
 
         let dummy_pdf = b"%PDF-1.7\nSample";
-        let doc = engine.load_document_from_bytes(dummy_pdf, None).expect("Fallback parse failed");
+        let doc = engine
+            .load_document_from_bytes(dummy_pdf, None)
+            .expect("Fallback parse failed");
         assert_eq!(doc.total_pages(), 1);
 
         let opts = RasterizerOptions::default();
@@ -199,6 +209,9 @@ mod tests {
             .expect("Fallback render failed");
         assert!(page.width > 0);
         assert!(page.height > 0);
-        assert_eq!(page.rgba_buffer.len(), (page.width * page.height * 4) as usize);
+        assert_eq!(
+            page.rgba_buffer.len(),
+            (page.width * page.height * 4) as usize
+        );
     }
 }

@@ -3,9 +3,9 @@
 //! Exposes page count, dimensions, and aspect ratios without requiring
 //! active rendering locks on the UI thread.
 
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use anyhow::Result;
 
 /// Dimension metrics for a single PDF page in standard points (1/72 inch).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -144,7 +144,11 @@ mod tests {
             PageDimensions::new(595.0, 842.0), // A4
             PageDimensions::new(612.0, 792.0), // US Letter
         ];
-        let doc = PdfDocument::new(Some(PathBuf::from("/tmp/sample.pdf")), pages, Some("Sample".into()));
+        let doc = PdfDocument::new(
+            Some(PathBuf::from("/tmp/sample.pdf")),
+            pages,
+            Some("Sample".into()),
+        );
 
         assert_eq!(doc.total_pages(), 2);
         assert_eq!(doc.page_size(0), Some(PageDimensions::new(595.0, 842.0)));

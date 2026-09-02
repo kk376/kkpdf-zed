@@ -167,6 +167,9 @@ mod tests {
         assert!(trigger2, "Should trigger reload after debounce duration");
 
         debouncer.mark_reloaded();
-        assert!(!debouncer.should_reload(), "Should not trigger again without change");
+        assert!(
+            !debouncer.should_reload(),
+            "Should not trigger again without change"
+        );
     }
 }

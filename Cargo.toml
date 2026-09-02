@@ -28,3 +28,4 @@ unexpected_cfgs = { level = "allow" }
 dbg_macro = "deny"
 todo = "deny"
 redundant_clone = "deny"
+undocumented_unsafe_blocks = "deny"

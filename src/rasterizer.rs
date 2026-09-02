@@ -3,9 +3,9 @@
 //! Converts PDF vector pages into RGBA framebuffers on background worker threads,
 //! with optional luminance-threshold dark mode color mapping.
 
-use anyhow::Result;
 use crate::cache::RenderedPage;
 use crate::document::PageDimensions;
+use anyhow::Result;
 
 /// Rendering and tone mapping configuration.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -104,10 +104,10 @@ impl PageRasterizer {
         for y in 0..height.min(30) {
             for x in 0..width {
                 let idx = ((y * width + x) * 4) as usize;
-                buffer[idx] = 20;     // R
+                buffer[idx] = 20; // R
                 buffer[idx + 1] = 20; // G
                 buffer[idx + 2] = 20; // B
-                buffer[idx + 3] = 255;// A
+                buffer[idx + 3] = 255; // A
             }
         }
 
@@ -115,9 +115,9 @@ impl PageRasterizer {
         for y in 40..height.min(80) {
             for x in 40..width.min(80) {
                 let idx = ((y * width + x) * 4) as usize;
-                buffer[idx] = 235;   // R (Vibrant Red)
-                buffer[idx + 1] = 30;// G
-                buffer[idx + 2] = 30;// B
+                buffer[idx] = 235; // R (Vibrant Red)
+                buffer[idx + 1] = 30; // G
+                buffer[idx + 2] = 30; // B
                 buffer[idx + 3] = 255;
             }
         }
@@ -145,20 +145,25 @@ mod tests {
     fn test_luminosity_remapping_white_and_black() {
         // Pixel 0: Pure White [255, 255, 255, 255] (Paper background)
         // Pixel 1: Pure Black [0, 0, 0, 255] (Text)
-        let mut buffer = vec![
-            255, 255, 255, 255,
-            0, 0, 0, 255,
-        ];
+        let mut buffer = vec![255, 255, 255, 255, 0, 0, 0, 255];
 
         LuminosityToneMapper::apply(&mut buffer, 0.18);
 
         // White should be mapped to dark background (~30)
-        assert!(buffer[0] <= 40, "White background should become dark (got {})", buffer[0]);
+        assert!(
+            buffer[0] <= 40,
+            "White background should become dark (got {})",
+            buffer[0]
+        );
         assert_eq!(buffer[0], buffer[1]);
         assert_eq!(buffer[1], buffer[2]);
 
         // Black should be mapped to light text (~215)
-        assert!(buffer[4] >= 200, "Black text should become light (got {})", buffer[4]);
+        assert!(
+            buffer[4] >= 200,
+            "Black text should become light (got {})",
+            buffer[4]
+        );
         assert_eq!(buffer[4], buffer[5]);
         assert_eq!(buffer[5], buffer[6]);
     }
@@ -167,10 +172,7 @@ mod tests {
     fn test_luminosity_remapping_preserves_saturated_colors() {
         // Pixel 0: Saturated Red [255, 0, 0, 255]
         // Pixel 1: Saturated Blue [0, 120, 255, 255]
-        let mut buffer = vec![
-            255, 0, 0, 255,
-            0, 120, 255, 255,
-        ];
+        let mut buffer = vec![255, 0, 0, 255, 0, 120, 255, 255];
 
         LuminosityToneMapper::apply(&mut buffer, 0.18);
 

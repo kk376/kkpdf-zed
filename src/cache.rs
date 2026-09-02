@@ -115,7 +115,9 @@ impl PageLruCache {
 
         // If replacing existing entry, remove old size first
         if let Some(old_page) = self.entries.remove(&key) {
-            self.current_memory_bytes = self.current_memory_bytes.saturating_sub(old_page.byte_size());
+            self.current_memory_bytes = self
+                .current_memory_bytes
+                .saturating_sub(old_page.byte_size());
             if let Some(pos) = self.lru_order.iter().position(|k| k == &key) {
                 self.lru_order.remove(pos);
             }
@@ -256,7 +258,10 @@ mod tests {
         // Page 0 should be evicted!
         cache.insert(key2, page2);
         assert_eq!(cache.len(), 2);
-        assert!(cache.get(&key0).is_none(), "Page 0 should have been evicted");
+        assert!(
+            cache.get(&key0).is_none(),
+            "Page 0 should have been evicted"
+        );
         assert!(cache.get(&key1).is_some(), "Page 1 should still exist");
         assert!(cache.get(&key2).is_some(), "Page 2 should still exist");
     }
@@ -270,8 +275,14 @@ mod tests {
         let key1 = CacheKey::new(1, 1.0, false);
         let key2 = CacheKey::new(2, 1.0, false);
 
-        cache.insert(key0, RenderedPage::new(0, 100, 1000, 1.0, false, buf.clone()));
-        cache.insert(key1, RenderedPage::new(1, 100, 1000, 1.0, false, buf.clone()));
+        cache.insert(
+            key0,
+            RenderedPage::new(0, 100, 1000, 1.0, false, buf.clone()),
+        );
+        cache.insert(
+            key1,
+            RenderedPage::new(1, 100, 1000, 1.0, false, buf.clone()),
+        );
 
         // Access page 0, making page 1 the oldest
         let _ = cache.get(&key0);
@@ -279,8 +290,14 @@ mod tests {
         // Insert page 2 -> page 1 should be evicted instead of page 0!
         cache.insert(key2, RenderedPage::new(2, 100, 1000, 1.0, false, buf));
 
-        assert!(cache.get(&key0).is_some(), "Page 0 was accessed and should survive");
-        assert!(cache.get(&key1).is_none(), "Page 1 was oldest and should be evicted");
+        assert!(
+            cache.get(&key0).is_some(),
+            "Page 0 was accessed and should survive"
+        );
+        assert!(
+            cache.get(&key1).is_none(),
+            "Page 1 was oldest and should be evicted"
+        );
         assert!(cache.get(&key2).is_some(), "Page 2 is newly inserted");
     }
 }
