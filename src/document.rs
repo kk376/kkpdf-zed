@@ -89,6 +89,30 @@ impl PdfDocument {
         self.path.as_deref()
     }
 
+    /// Slice of all page dimensions in the document.
+    #[inline]
+    pub fn pages(&self) -> &[PageDimensions] {
+        &self.pages
+    }
+
+    /// Computes overall width and height in pixels for the entire stitched document.
+    pub fn total_pixel_size(&self, zoom_factor: f32, dpi: f32, page_gap: u32) -> (u32, u32) {
+        if self.pages.is_empty() {
+            return (0, 0);
+        }
+        let mut max_w = 0u32;
+        let mut total_h = 0u32;
+        for (i, page) in self.pages.iter().enumerate() {
+            let (w, h) = page.to_pixel_size(zoom_factor, dpi);
+            max_w = max_w.max(w);
+            total_h += h;
+            if i + 1 < self.pages.len() {
+                total_h += page_gap;
+            }
+        }
+        (max_w, total_h)
+    }
+
     /// Document title if available in metadata, or falls back to filename.
     pub fn display_title(&self) -> String {
         if let Some(ref title) = self.title {
@@ -155,6 +179,12 @@ mod tests {
         assert_eq!(doc.page_size(1), Some(PageDimensions::new(612.0, 792.0)));
         assert_eq!(doc.page_size(2), None);
         assert_eq!(doc.display_title(), "Sample");
+
+        // Test total_pixel_size: at 72 DPI, 1.0x zoom, 20px gap
+        // max width = max(595, 612) = 612
+        // total height = 842 + 792 + 20 = 1654
+        let (total_w, total_h) = doc.total_pixel_size(1.0, 72.0, 20);
+        assert_eq!((total_w, total_h), (612, 1654));
     }
 
     #[test]

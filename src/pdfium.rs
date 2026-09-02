@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::cache::RenderedPage;
 use crate::document::{PageDimensions, PdfDocument};
-use crate::rasterizer::{LuminosityToneMapper, RasterizerOptions};
+use crate::rasterizer::{LuminosityToneMapper, PageRasterizer, RasterizerOptions};
 
 /// Internal wrapper granting thread-safe synchronization to Pdfium handle.
 struct SerializedPdfium(Option<Pdfium>);
@@ -205,6 +205,167 @@ impl PdfiumEngine {
             crate::rasterizer::PageRasterizer::render_mock_page(page_index, dim, options)
         }
     }
+    /// Rasterizes all pages from file bytes into a continuous vertical layout,
+    /// stitching them together with a configurable page spacing and margin.
+    pub fn render_document_from_bytes(
+        &self,
+        bytes: &[u8],
+        options: RasterizerOptions,
+        page_gap: u32,
+    ) -> Result<RenderedPage> {
+        let guard = self.inner.lock();
+        if let Some(ref pdfium) = guard.0 {
+            let doc = pdfium
+                .load_pdf_from_byte_slice(bytes, None)
+                .context("Failed to load PDF in document rasterizer")?;
+
+            let total_pages = doc.pages().len() as usize;
+            if total_pages == 0 {
+                anyhow::bail!("PDF document contains no pages");
+            }
+
+            let mut rendered_pages = Vec::with_capacity(total_pages);
+            for (idx, page) in doc.pages().iter().enumerate() {
+                let target_width =
+                    (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
+                        .round()
+                        .max(1.0) as i32;
+                let target_height =
+                    (page.height().value * (options.target_dpi / 72.0) * options.zoom_factor)
+                        .round()
+                        .max(1.0) as i32;
+
+                let render_config = PdfRenderConfig::new()
+                    .set_target_width(target_width)
+                    .set_target_height(target_height)
+                    .render_form_data(true)
+                    .render_annotations(true);
+
+                let bitmap = page
+                    .render_with_config(&render_config)
+                    .with_context(|| format!("Pdfium failed to render page {}", idx))?;
+
+                let mut rgba_buffer = bitmap.as_image().to_rgba8().into_raw();
+
+                if options.dark_mode {
+                    LuminosityToneMapper::apply(&mut rgba_buffer, options.saturation_threshold);
+                }
+
+                rendered_pages.push((target_width as u32, target_height as u32, rgba_buffer));
+            }
+
+            let max_width = rendered_pages.iter().map(|(w, _, _)| *w).max().unwrap_or(1);
+            let total_height: u32 = rendered_pages.iter().map(|(_, h, _)| *h).sum::<u32>()
+                + ((total_pages as u32 - 1) * page_gap);
+
+            let stride = (max_width as usize) * 4;
+            let total_bytes = stride * (total_height as usize);
+
+            let bg_color = if options.dark_mode {
+                [24u8, 24, 37, 255]
+            } else {
+                [230u8, 233, 239, 255]
+            };
+
+            let mut composite = vec![0u8; total_bytes];
+            for chunk in composite.as_chunks_mut::<4>().0 {
+                *chunk = bg_color;
+            }
+
+            let mut y_offset = 0u32;
+            for (w, h, page_buf) in rendered_pages {
+                let x_offset = ((max_width - w) / 2) as usize;
+                let page_stride = (w as usize) * 4;
+
+                for y in 0..h {
+                    let src_start = (y as usize) * page_stride;
+                    let src_end = src_start + page_stride;
+                    let src_slice = &page_buf[src_start..src_end];
+
+                    let dst_y = (y_offset + y) as usize;
+                    let dst_start = (dst_y * (max_width as usize) + x_offset) * 4;
+                    let dst_end = dst_start + page_stride;
+
+                    composite[dst_start..dst_end].copy_from_slice(src_slice);
+                }
+
+                y_offset += h + page_gap;
+            }
+
+            Ok(RenderedPage::new(
+                0,
+                max_width,
+                total_height,
+                options.zoom_factor,
+                options.dark_mode,
+                composite,
+            ))
+        } else {
+            let doc = PdfDocument::from_bytes(bytes, None)?;
+            let total_pages = doc.total_pages();
+            if total_pages == 0 {
+                anyhow::bail!("PDF document contains no pages");
+            }
+            if total_pages == 1 {
+                let dim = doc.page_size(0).unwrap_or(PageDimensions::new(612.0, 792.0));
+                return PageRasterizer::render_mock_page(0, dim, options);
+            }
+
+            let mut rendered_pages = Vec::with_capacity(total_pages);
+            for i in 0..total_pages {
+                let dim = doc.page_size(i).unwrap_or(PageDimensions::new(612.0, 792.0));
+                let page = PageRasterizer::render_mock_page(i, dim, options)?;
+                rendered_pages.push((page.width, page.height, page.rgba_buffer.as_ref().clone()));
+            }
+
+            let max_width = rendered_pages.iter().map(|(w, _, _)| *w).max().unwrap_or(1);
+            let total_height: u32 = rendered_pages.iter().map(|(_, h, _)| *h).sum::<u32>()
+                + ((total_pages as u32 - 1) * page_gap);
+
+            let stride = (max_width as usize) * 4;
+            let total_bytes = stride * (total_height as usize);
+
+            let bg_color = if options.dark_mode {
+                [24u8, 24, 37, 255]
+            } else {
+                [230u8, 233, 239, 255]
+            };
+
+            let mut composite = vec![0u8; total_bytes];
+            for chunk in composite.as_chunks_mut::<4>().0 {
+                *chunk = bg_color;
+            }
+
+            let mut y_offset = 0u32;
+            for (w, h, page_buf) in rendered_pages {
+                let x_offset = ((max_width - w) / 2) as usize;
+                let page_stride = (w as usize) * 4;
+
+                for y in 0..h {
+                    let src_start = (y as usize) * page_stride;
+                    let src_end = src_start + page_stride;
+                    let src_slice = &page_buf[src_start..src_end];
+
+                    let dst_y = (y_offset + y) as usize;
+                    let dst_start = (dst_y * (max_width as usize) + x_offset) * 4;
+                    let dst_end = dst_start + page_stride;
+
+                    composite[dst_start..dst_end].copy_from_slice(src_slice);
+                }
+
+                y_offset += h + page_gap;
+            }
+
+            Ok(RenderedPage::new(
+                0,
+                max_width,
+                total_height,
+                options.zoom_factor,
+                options.dark_mode,
+                composite,
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -240,6 +401,25 @@ mod tests {
         assert_eq!(
             page.rgba_buffer.len(),
             (page.width * page.height * 4) as usize
+        );
+    }
+
+    #[test]
+    fn test_render_document_multi_page() {
+        let engine = PdfiumEngine {
+            inner: Arc::new(Mutex::new(SerializedPdfium(None))),
+        };
+
+        let dummy_pdf = b"%PDF-1.7\nSample";
+        let opts = RasterizerOptions::default();
+        let rendered = engine
+            .render_document_from_bytes(dummy_pdf, opts, 20)
+            .expect("Render document failed");
+        assert!(rendered.width > 0);
+        assert!(rendered.height > 0);
+        assert_eq!(
+            rendered.rgba_buffer.len(),
+            (rendered.width * rendered.height * 4) as usize
         );
     }
 }
