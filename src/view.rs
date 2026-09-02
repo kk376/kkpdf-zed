@@ -395,6 +395,21 @@ impl PdfView {
     pub fn zoom_percentage(&self) -> u32 {
         (self.zoom_level * 100.0).round().max(1.0) as u32
     }
+
+    /// Returns the active 0-indexed page index.
+    pub fn current_page(&self) -> usize {
+        self.current_page
+    }
+
+    /// Returns the current zoom level factor.
+    pub fn zoom_level(&self) -> f32 {
+        self.zoom_level
+    }
+
+    /// Returns the current pan offset (x, y).
+    pub fn pan_offset(&self) -> (f32, f32) {
+        self.pan_offset
+    }
 }
 
 #[cfg(test)]
