@@ -46,7 +46,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     let file_metadata = fs::metadata(&pdf_path)?;
-    println!("    - File Size:          {:.2} KB", file_metadata.len() as f64 / 1024.0);
+    println!(
+        "    - File Size:          {:.2} KB",
+        file_metadata.len() as f64 / 1024.0
+    );
 
     // 2. Initialize PdfView & Parse Document
     let settings = PdfViewerSettings {
@@ -86,9 +89,7 @@ fn main() -> anyhow::Result<()> {
     let dark_duration = start_dark.elapsed();
     println!(
         "[+] Page 1 Rendered (100% Dark Mode Tone-Mapped): {}x{} px in {:.2?}",
-        page1_dark.width,
-        page1_dark.height,
-        dark_duration
+        page1_dark.width, page1_dark.height, dark_duration
     );
 
     // Save outputs to disk for user visual inspection
@@ -98,19 +99,31 @@ fn main() -> anyhow::Result<()> {
     let dark_out_path = out_dir.join("page_1_dark.png");
 
     // Save light image
-    let light_img: image::ImageBuffer<image::Rgba<u8>, _> =
-        image::ImageBuffer::from_raw(page1_light.width, page1_light.height, page1_light.rgba_buffer.as_ref().clone())
-            .ok_or_else(|| anyhow::anyhow!("Failed to construct ImageBuffer for light mode"))?;
+    let light_img: image::ImageBuffer<image::Rgba<u8>, _> = image::ImageBuffer::from_raw(
+        page1_light.width,
+        page1_light.height,
+        page1_light.rgba_buffer.as_ref().clone(),
+    )
+    .ok_or_else(|| anyhow::anyhow!("Failed to construct ImageBuffer for light mode"))?;
     light_img.save(&light_out_path)?;
 
     // Save dark image
-    let dark_img: image::ImageBuffer<image::Rgba<u8>, _> =
-        image::ImageBuffer::from_raw(page1_dark.width, page1_dark.height, page1_dark.rgba_buffer.as_ref().clone())
-            .ok_or_else(|| anyhow::anyhow!("Failed to construct ImageBuffer for dark mode"))?;
+    let dark_img: image::ImageBuffer<image::Rgba<u8>, _> = image::ImageBuffer::from_raw(
+        page1_dark.width,
+        page1_dark.height,
+        page1_dark.rgba_buffer.as_ref().clone(),
+    )
+    .ok_or_else(|| anyhow::anyhow!("Failed to construct ImageBuffer for dark mode"))?;
     dark_img.save(&dark_out_path)?;
 
-    println!("    -> Saved Light Mode sample: {}", light_out_path.display());
-    println!("    -> Saved Dark Mode sample:  {}", dark_out_path.display());
+    println!(
+        "    -> Saved Light Mode sample: {}",
+        light_out_path.display()
+    );
+    println!(
+        "    -> Saved Dark Mode sample:  {}",
+        dark_out_path.display()
+    );
 
     // 5. Test LRU Cache Invariants
     println!("\n[*] Testing Page LRU Memory Cache...");
@@ -131,12 +144,18 @@ fn main() -> anyhow::Result<()> {
 
     assert!(cache.get(&key_light).is_some(), "Cache hit for light mode");
     assert!(cache.get(&key_dark).is_some(), "Cache hit for dark mode");
-    assert!(cache.get(&key_zoom).is_none(), "Cache miss for uncached zoom");
+    assert!(
+        cache.get(&key_zoom).is_none(),
+        "Cache miss for uncached zoom"
+    );
     println!("[+] Cache hit/miss invariants verified successfully!");
 
     // 6. Test Interactive View State Machine (Zoom, Pan, Layout)
     println!("\n[*] Testing View State Machine (Zoom, Pan, Navigation)...");
-    println!("    - Initial Zoom:       {:.1}%", view.zoom_level() * 100.0);
+    println!(
+        "    - Initial Zoom:       {:.1}%",
+        view.zoom_level() * 100.0
+    );
     println!("    - Initial Page Index: {}", view.current_page());
 
     // Zoom in with focal point at center (400, 300)
@@ -161,7 +180,10 @@ fn main() -> anyhow::Result<()> {
     // Navigate to next page
     if view.total_pages() > 1 {
         view.next_page();
-        println!("    - After Next Page: Current Page Index = {}", view.current_page());
+        println!(
+            "    - After Next Page: Current Page Index = {}",
+            view.current_page()
+        );
     }
 
     // 7. Test Watcher Debounce & State Preservation
