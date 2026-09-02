@@ -416,6 +416,8 @@ impl PdfView {
 mod tests {
     use super::*;
 
+    const SAMPLE_VALID_PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n185\n%%EOF\n";
+
     #[test]
     fn test_view_zoom_clamping() {
         let mut view = PdfView::new(PdfViewerSettings::default());
@@ -429,8 +431,7 @@ mod tests {
     #[test]
     fn test_view_page_navigation() {
         let mut view = PdfView::new(PdfViewerSettings::default());
-        let dummy_pdf = b"%PDF-1.7\nSample";
-        view.load_from_bytes(dummy_pdf.to_vec(), None)
+        view.load_from_bytes(SAMPLE_VALID_PDF.to_vec(), None)
             .expect("Load");
 
         assert_eq!(view.current_page, 0);
@@ -450,8 +451,7 @@ mod tests {
     #[test]
     fn test_view_cache_and_render_cycle() {
         let mut view = PdfView::new(PdfViewerSettings::default());
-        let dummy_pdf = b"%PDF-1.7\nSample";
-        view.load_from_bytes(dummy_pdf.to_vec(), None)
+        view.load_from_bytes(SAMPLE_VALID_PDF.to_vec(), None)
             .expect("Load");
 
         let page = view.get_or_render_page(0).expect("Render page");

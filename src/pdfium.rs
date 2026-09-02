@@ -25,6 +25,10 @@ unsafe impl Send for SerializedPdfium {}
 // by a Mutual Exclusion (Mutex) lock, guaranteeing synchronized multi-thread access.
 unsafe impl Sync for SerializedPdfium {}
 
+use std::sync::OnceLock;
+
+static GLOBAL_PDFIUM: OnceLock<Arc<Mutex<SerializedPdfium>>> = OnceLock::new();
+
 /// Thread-safe wrapper around a Pdfium instance.
 #[derive(Clone)]
 pub struct PdfiumEngine {
@@ -38,11 +42,14 @@ impl Default for PdfiumEngine {
 }
 
 impl PdfiumEngine {
-    /// Creates a new engine handle, attempting dynamic binding initialization.
+    /// Creates a new engine handle, sharing the process-level singleton instance.
     pub fn new() -> Self {
-        let pdfium = Self::try_init_pdfium();
+        let inner = GLOBAL_PDFIUM.get_or_init(|| {
+            let pdfium = Self::try_init_pdfium();
+            Arc::new(Mutex::new(SerializedPdfium(pdfium)))
+        });
         Self {
-            inner: Arc::new(Mutex::new(SerializedPdfium(pdfium))),
+            inner: Arc::clone(inner),
         }
     }
 

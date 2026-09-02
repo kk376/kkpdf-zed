@@ -1,6 +1,7 @@
 use kkpdf_zed::{PageLayoutMode, PdfToolbarState, PdfView, PdfViewerSettings};
-use std::io::Write;
 use std::time::Duration;
+
+const MINIMAL_PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n185\n%%EOF\n";
 
 #[test]
 fn test_end_to_end_pdf_view_lifecycle() {
@@ -10,7 +11,7 @@ fn test_end_to_end_pdf_view_lifecycle() {
     };
 
     let mut view = PdfView::new(settings);
-    let sample_pdf = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    let sample_pdf = MINIMAL_PDF;
 
     view.load_from_bytes(sample_pdf.to_vec(), None)
         .expect("Load sample PDF bytes");
@@ -51,8 +52,7 @@ fn test_reload_preserving_exact_viewport_and_zoom() {
 
     // Write initial PDF
     {
-        let mut file = std::fs::File::create(&pdf_path).expect("create");
-        writeln!(file, "%PDF-1.7 initial version").expect("write");
+        std::fs::write(&pdf_path, MINIMAL_PDF).expect("write");
     }
 
     let mut view = PdfView::new(PdfViewerSettings::default());
@@ -75,8 +75,7 @@ fn test_reload_preserving_exact_viewport_and_zoom() {
 
     // Compiler rebuilds the PDF
     {
-        let mut file = std::fs::File::create(&pdf_path).expect("rebuild");
-        writeln!(file, "%PDF-1.7 rebuilt document").expect("write");
+        std::fs::write(&pdf_path, MINIMAL_PDF).expect("rebuild");
     }
 
     // Debounced hot reload trigger
