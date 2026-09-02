@@ -444,6 +444,266 @@ pub struct PdfDocumentDetails {
     pub pages: Vec<PdfPageDetails>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PdfPageRenderResult {
+    pub page_index: usize,
+    pub width: u32,
+    pub height: u32,
+    pub rgba_buffer: Vec<u8>,
+    pub text: String,
+    pub text_segments: Vec<PdfTextSegment>,
+    pub links: Vec<PdfLinkAnnotation>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PdfDocumentRenderResult {
+    pub total_pages: usize,
+    pub full_text: String,
+    pub pages: Vec<PdfPageRenderResult>,
+}
+
+fn extract_page_text_and_links(
+    page: &pdfium_render::prelude::PdfPage,
+    idx: usize,
+    full_text: &mut String,
+) -> (String, Vec<PdfTextSegment>, Vec<PdfLinkAnnotation>) {
+    let page_w = page.width().value;
+    let page_h = page.height().value;
+    let mut page_text = String::new();
+    let mut segments = Vec::new();
+    let mut links = Vec::new();
+
+    // 1. Text and Text Segments
+    if let Ok(text_page) = page.text() {
+        page_text = text_page.all();
+        if !page_text.is_empty() {
+            if idx > 0 {
+                full_text.push_str("\n\n--- Page ");
+                full_text.push_str(&(idx + 1).to_string());
+                full_text.push_str(" ---\n\n");
+            }
+            full_text.push_str(&page_text);
+        }
+
+        let seg_coll = text_page.segments();
+        for seg in seg_coll.iter() {
+            let seg_str = seg.text();
+            let seg_trimmed = seg_str.trim();
+            if seg_trimmed.is_empty() {
+                continue;
+            }
+
+            if !seg_trimmed.contains(' ') {
+                let bounds = seg.bounds();
+                let left = bounds.left().value.min(bounds.right().value);
+                let right = bounds.left().value.max(bounds.right().value);
+                let bottom = bounds.bottom().value.min(bounds.top().value);
+                let top = bounds.bottom().value.max(bounds.top().value);
+
+                let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                if norm_w > 0.0 && norm_h > 0.0 {
+                    segments.push(PdfTextSegment {
+                        text: seg_trimmed.to_string(),
+                        x: norm_x,
+                        y: norm_y,
+                        width: norm_w,
+                        height: norm_h,
+                    });
+                }
+                continue;
+            }
+
+            if let Ok(chars) = seg.chars() {
+                let mut word_text = String::new();
+                let mut min_left = f32::MAX;
+                let mut max_right = f32::MIN;
+                let mut min_bottom = f32::MAX;
+                let mut max_top = f32::MIN;
+                let mut has_word_char = false;
+
+                for ch in chars.iter() {
+                    let u_char = ch.unicode_char();
+                    let is_ws = u_char.map(|c| c.is_whitespace()).unwrap_or(false);
+
+                    if is_ws {
+                        if has_word_char && !word_text.is_empty() {
+                            let norm_x = if page_w > 0.0 { (min_left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_y = if page_h > 0.0 { ((page_h - max_top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_w = if page_w > 0.0 { ((max_right - min_left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_h = if page_h > 0.0 { ((max_top - min_bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                            if norm_w > 0.0 && norm_h > 0.0 {
+                                segments.push(PdfTextSegment {
+                                    text: std::mem::take(&mut word_text),
+                                    x: norm_x,
+                                    y: norm_y,
+                                    width: norm_w,
+                                    height: norm_h,
+                                });
+                            }
+                            word_text.clear();
+                            min_left = f32::MAX;
+                            max_right = f32::MIN;
+                            min_bottom = f32::MAX;
+                            max_top = f32::MIN;
+                            has_word_char = false;
+                        }
+                    } else if let Some(c) = u_char {
+                        word_text.push(c);
+                        if let Ok(bounds) = ch.loose_bounds().or_else(|_| ch.tight_bounds()) {
+                            let l = bounds.left().value.min(bounds.right().value);
+                            let r = bounds.left().value.max(bounds.right().value);
+                            let b = bounds.bottom().value.min(bounds.top().value);
+                            let t = bounds.bottom().value.max(bounds.top().value);
+
+                            min_left = min_left.min(l);
+                            max_right = max_right.max(r);
+                            min_bottom = min_bottom.min(b);
+                            max_top = max_top.max(t);
+                            has_word_char = true;
+                        }
+                    }
+                }
+
+                if has_word_char && !word_text.is_empty() {
+                    let norm_x = if page_w > 0.0 { (min_left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                    let norm_y = if page_h > 0.0 { ((page_h - max_top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                    let norm_w = if page_w > 0.0 { ((max_right - min_left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                    let norm_h = if page_h > 0.0 { ((max_top - min_bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                    if norm_w > 0.0 && norm_h > 0.0 {
+                        segments.push(PdfTextSegment {
+                            text: word_text,
+                            x: norm_x,
+                            y: norm_y,
+                            width: norm_w,
+                            height: norm_h,
+                        });
+                    }
+                }
+            } else {
+                let bounds = seg.bounds();
+                let left = bounds.left().value.min(bounds.right().value);
+                let right = bounds.left().value.max(bounds.right().value);
+                let bottom = bounds.bottom().value.min(bounds.top().value);
+                let top = bounds.bottom().value.max(bounds.top().value);
+
+                let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                segments.push(PdfTextSegment {
+                    text: seg_trimmed.to_string(),
+                    x: norm_x,
+                    y: norm_y,
+                    width: norm_w,
+                    height: norm_h,
+                });
+            }
+        }
+    }
+
+    // 2. Links from page.links()
+    for link in page.links().iter() {
+        if let Some(action) = link.action() {
+            if let PdfAction::Uri(uri_action) = action {
+                if let Ok(url) = uri_action.uri() {
+                    let url_clean = url.trim().to_string();
+                    if !url_clean.is_empty() {
+                        if let Ok(rect) = link.rect() {
+                            let left = rect.left().value.min(rect.right().value);
+                            let right = rect.left().value.max(rect.right().value);
+                            let bottom = rect.bottom().value.min(rect.top().value);
+                            let top = rect.bottom().value.max(rect.top().value);
+
+                            let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                            links.push(PdfLinkAnnotation {
+                                url: url_clean,
+                                x: norm_x,
+                                y: norm_y,
+                                width: norm_w,
+                                height: norm_h,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Links from page.annotations()
+    for annot in page.annotations().iter() {
+        if let Some(link_annot) = annot.as_link_annotation() {
+            if let Ok(link) = link_annot.link() {
+                if let Some(action) = link.action() {
+                    if let PdfAction::Uri(uri_action) = action {
+                        if let Ok(url) = uri_action.uri() {
+                            let url_clean = url.trim().to_string();
+                            if !url_clean.is_empty() {
+                                if let Ok(rect) = link.rect() {
+                                    let left = rect.left().value.min(rect.right().value);
+                                    let right = rect.left().value.max(rect.right().value);
+                                    let bottom = rect.bottom().value.min(rect.top().value);
+                                    let top = rect.bottom().value.max(rect.top().value);
+
+                                    let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                    let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                    let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                    let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                                    let exists = links.iter().any(|l| l.url == url_clean && (l.x - norm_x).abs() < 0.01 && (l.y - norm_y).abs() < 0.01);
+                                    if !exists {
+                                        links.push(PdfLinkAnnotation {
+                                            url: url_clean,
+                                            x: norm_x,
+                                            y: norm_y,
+                                            width: norm_w,
+                                            height: norm_h,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Text URLs from segments (heuristic for raw text URLs)
+    for seg in &segments {
+        let text = seg.text.trim();
+        if text.starts_with("http://") || text.starts_with("https://") || text.starts_with("www.") {
+            let url = if text.starts_with("www.") {
+                format!("https://{}", text)
+            } else {
+                text.to_string()
+            };
+            let exists = links.iter().any(|l| (l.x - seg.x).abs() < 0.02 && (l.y - seg.y).abs() < 0.02);
+            if !exists {
+                links.push(PdfLinkAnnotation {
+                    url,
+                    x: seg.x,
+                    y: seg.y,
+                    width: seg.width,
+                    height: seg.height,
+                });
+            }
+        }
+    }
+
+    (page_text, segments, links)
+}
+
 impl PdfiumEngine {
     /// Extracts full document details including text, text segments with bounding boxes, and links.
     pub fn extract_document_details(&self, bytes: &[u8]) -> Result<PdfDocumentDetails> {
@@ -459,210 +719,7 @@ impl PdfiumEngine {
             for (idx, page) in doc.pages().iter().enumerate() {
                 let page_w = page.width().value;
                 let page_h = page.height().value;
-                let mut page_text = String::new();
-                let mut segments = Vec::new();
-                let mut links = Vec::new();
-
-                // 1. Text and Text Segments
-                if let Ok(text_page) = page.text() {
-                    page_text = text_page.all();
-                    if !page_text.is_empty() {
-                        if idx > 0 {
-                            full_text.push_str("\n\n--- Page ");
-                            full_text.push_str(&(idx + 1).to_string());
-                            full_text.push_str(" ---\n\n");
-                        }
-                        full_text.push_str(&page_text);
-                    }
-
-                    let seg_coll = text_page.segments();
-                    for seg in seg_coll.iter() {
-                        if let Ok(chars) = seg.chars() {
-                            let mut word_text = String::new();
-                            let mut min_left = f32::MAX;
-                            let mut max_right = f32::MIN;
-                            let mut min_bottom = f32::MAX;
-                            let mut max_top = f32::MIN;
-                            let mut has_word_char = false;
-
-                            for ch in chars.iter() {
-                                let u_char = ch.unicode_char();
-                                let is_ws = u_char.map(|c| c.is_whitespace()).unwrap_or(false);
-
-                                if is_ws {
-                                    if has_word_char && !word_text.is_empty() {
-                                        let norm_x = if page_w > 0.0 { (min_left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                        let norm_y = if page_h > 0.0 { ((page_h - max_top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                        let norm_w = if page_w > 0.0 { ((max_right - min_left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                        let norm_h = if page_h > 0.0 { ((max_top - min_bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-
-                                        if norm_w > 0.0 && norm_h > 0.0 {
-                                            segments.push(PdfTextSegment {
-                                                text: std::mem::take(&mut word_text),
-                                                x: norm_x,
-                                                y: norm_y,
-                                                width: norm_w,
-                                                height: norm_h,
-                                            });
-                                        }
-                                        word_text.clear();
-                                        min_left = f32::MAX;
-                                        max_right = f32::MIN;
-                                        min_bottom = f32::MAX;
-                                        max_top = f32::MIN;
-                                        has_word_char = false;
-                                    }
-                                } else if let Some(c) = u_char {
-                                    word_text.push(c);
-                                    if let Ok(bounds) = ch.loose_bounds().or_else(|_| ch.tight_bounds()) {
-                                        let l = bounds.left().value.min(bounds.right().value);
-                                        let r = bounds.left().value.max(bounds.right().value);
-                                        let b = bounds.bottom().value.min(bounds.top().value);
-                                        let t = bounds.bottom().value.max(bounds.top().value);
-
-                                        min_left = min_left.min(l);
-                                        max_right = max_right.max(r);
-                                        min_bottom = min_bottom.min(b);
-                                        max_top = max_top.max(t);
-                                        has_word_char = true;
-                                    }
-                                }
-                            }
-
-                            if has_word_char && !word_text.is_empty() {
-                                let norm_x = if page_w > 0.0 { (min_left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                let norm_y = if page_h > 0.0 { ((page_h - max_top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                let norm_w = if page_w > 0.0 { ((max_right - min_left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                let norm_h = if page_h > 0.0 { ((max_top - min_bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-
-                                if norm_w > 0.0 && norm_h > 0.0 {
-                                    segments.push(PdfTextSegment {
-                                        text: word_text,
-                                        x: norm_x,
-                                        y: norm_y,
-                                        width: norm_w,
-                                        height: norm_h,
-                                    });
-                                }
-                            }
-                        } else {
-                            let text = seg.text().trim().to_string();
-                            if !text.is_empty() {
-                                let bounds = seg.bounds();
-                                let left = bounds.left().value.min(bounds.right().value);
-                                let right = bounds.left().value.max(bounds.right().value);
-                                let bottom = bounds.bottom().value.min(bounds.top().value);
-                                let top = bounds.bottom().value.max(bounds.top().value);
-
-                                let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-
-                                segments.push(PdfTextSegment {
-                                    text,
-                                    x: norm_x,
-                                    y: norm_y,
-                                    width: norm_w,
-                                    height: norm_h,
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // 2. Links from page.links()
-                for link in page.links().iter() {
-                    if let Some(action) = link.action() {
-                        if let PdfAction::Uri(uri_action) = action {
-                            if let Ok(url) = uri_action.uri() {
-                                let url_clean = url.trim().to_string();
-                                if !url_clean.is_empty() {
-                                    if let Ok(rect) = link.rect() {
-                                        let left = rect.left().value.min(rect.right().value);
-                                        let right = rect.left().value.max(rect.right().value);
-                                        let bottom = rect.bottom().value.min(rect.top().value);
-                                        let top = rect.bottom().value.max(rect.top().value);
-
-                                        let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                        let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                        let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                        let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-
-                                        links.push(PdfLinkAnnotation {
-                                            url: url_clean,
-                                            x: norm_x,
-                                            y: norm_y,
-                                            width: norm_w,
-                                            height: norm_h,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 3. Links from page.annotations()
-                for annot in page.annotations().iter() {
-                    if let Some(link_annot) = annot.as_link_annotation() {
-                        if let Ok(link) = link_annot.link() {
-                            if let Some(action) = link.action() {
-                                if let PdfAction::Uri(uri_action) = action {
-                                    if let Ok(url) = uri_action.uri() {
-                                        let url_clean = url.trim().to_string();
-                                        if !url_clean.is_empty() {
-                                            if let Ok(rect) = link.rect() {
-                                                let left = rect.left().value.min(rect.right().value);
-                                                let right = rect.left().value.max(rect.right().value);
-                                                let bottom = rect.bottom().value.min(rect.top().value);
-                                                let top = rect.bottom().value.max(rect.top().value);
-
-                                                let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                                let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                                let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
-                                                let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
-
-                                                let exists = links.iter().any(|l| l.url == url_clean && (l.x - norm_x).abs() < 0.01 && (l.y - norm_y).abs() < 0.01);
-                                                if !exists {
-                                                    links.push(PdfLinkAnnotation {
-                                                        url: url_clean,
-                                                        x: norm_x,
-                                                        y: norm_y,
-                                                        width: norm_w,
-                                                        height: norm_h,
-                                                    });
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 4. Text URLs from segments (heuristic for raw text URLs)
-                for seg in &segments {
-                    let text = seg.text.trim();
-                    if text.starts_with("http://") || text.starts_with("https://") || text.starts_with("www.") {
-                        let url = if text.starts_with("www.") {
-                            format!("https://{}", text)
-                        } else {
-                            text.to_string()
-                        };
-                        let exists = links.iter().any(|l| (l.x - seg.x).abs() < 0.02 && (l.y - seg.y).abs() < 0.02);
-                        if !exists {
-                            links.push(PdfLinkAnnotation {
-                                url,
-                                x: seg.x,
-                                y: seg.y,
-                                width: seg.width,
-                                height: seg.height,
-                            });
-                        }
-                    }
-                }
+                let (page_text, segments, links) = extract_page_text_and_links(&page, idx, &mut full_text);
 
                 pages_details.push(PdfPageDetails {
                     page_index: idx,
@@ -681,6 +738,88 @@ impl PdfiumEngine {
             })
         } else {
             Ok(PdfDocumentDetails::default())
+        }
+    }
+
+    /// Renders all pages and extracts text/links in a single fast pass over the loaded document.
+    pub fn render_and_extract_document_from_bytes(
+        &self,
+        bytes: &[u8],
+        options: RasterizerOptions,
+    ) -> Result<PdfDocumentRenderResult> {
+        let guard = self.inner.lock();
+        if let Some(ref pdfium) = guard.0 {
+            let doc = pdfium
+                .load_pdf_from_byte_slice(bytes, None)
+                .context("Failed to load PDF for render and extraction")?;
+
+            let total_pages = doc.pages().len() as usize;
+            let mut full_text = String::new();
+            let mut rendered_pages = Vec::with_capacity(total_pages);
+
+            for (idx, page) in doc.pages().iter().enumerate() {
+                let page_w = page.width().value;
+                let page_h = page.height().value;
+
+                let target_width =
+                    (page_w * (options.target_dpi / 72.0) * options.zoom_factor)
+                        .round()
+                        .max(1.0) as i32;
+                let target_height =
+                    (page_h * (options.target_dpi / 72.0) * options.zoom_factor)
+                        .round()
+                        .max(1.0) as i32;
+
+                let render_config = PdfRenderConfig::new()
+                    .set_target_width(target_width)
+                    .set_target_height(target_height)
+                    .render_form_data(true)
+                    .render_annotations(true);
+
+                let bitmap = page
+                    .render_with_config(&render_config)
+                    .with_context(|| format!("Pdfium failed to render page {}", idx))?;
+
+                let mut rgba_buffer = bitmap.as_image().to_rgba8().into_raw();
+
+                if options.dark_mode {
+                    LuminosityToneMapper::apply(&mut rgba_buffer, options.saturation_threshold);
+                }
+
+                let (text, text_segments, links) = extract_page_text_and_links(&page, idx, &mut full_text);
+
+                rendered_pages.push(PdfPageRenderResult {
+                    page_index: idx,
+                    width: target_width as u32,
+                    height: target_height as u32,
+                    rgba_buffer,
+                    text,
+                    text_segments,
+                    links,
+                });
+            }
+
+            Ok(PdfDocumentRenderResult {
+                total_pages: rendered_pages.len(),
+                full_text,
+                pages: rendered_pages,
+            })
+        } else {
+            let dim = PageDimensions::new(612.0, 792.0);
+            let page = crate::rasterizer::PageRasterizer::render_mock_page(0, dim, options)?;
+            Ok(PdfDocumentRenderResult {
+                total_pages: 1,
+                full_text: String::new(),
+                pages: vec![PdfPageRenderResult {
+                    page_index: 0,
+                    width: page.width,
+                    height: page.height,
+                    rgba_buffer: page.rgba_buffer.as_ref().clone(),
+                    text: String::new(),
+                    text_segments: Vec::new(),
+                    links: Vec::new(),
+                }],
+            })
         }
     }
 }
@@ -750,5 +889,21 @@ mod tests {
         assert!(details.is_ok());
         let doc = details.unwrap();
         assert_eq!(doc.total_pages, 0);
+    }
+
+    #[test]
+    fn test_render_and_extract_document_from_bytes() {
+        let engine = PdfiumEngine {
+            inner: Arc::new(Mutex::new(SerializedPdfium(None))),
+        };
+        let dummy_pdf = b"%PDF-1.7\nSample";
+        let opts = RasterizerOptions::default();
+        let res = engine.render_and_extract_document_from_bytes(dummy_pdf, opts);
+        assert!(res.is_ok());
+        let doc = res.unwrap();
+        assert_eq!(doc.total_pages, 1);
+        assert_eq!(doc.pages.len(), 1);
+        assert!(doc.pages[0].width > 0);
+        assert!(doc.pages[0].height > 0);
     }
 }
