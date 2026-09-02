@@ -1,0 +1,25 @@
+# ==============================================================================
+# DOCUMENTATION STUB ONLY — NOT A FUNCTIONING EXTENSION MANIFEST
+# ==============================================================================
+# Zed's WebAssembly extension loader (WASM / WASI) currently only supports:
+#   - Language Servers (LSP)
+#   - Debug Adapters (DAP)
+#   - Slash Commands (AI Context)
+#   - Model Context Protocol (MCP) Servers
+#   - Syntax Themes & Tree-sitter Grammars
+#
+# Zed extensions CANNOT currently render custom UI components, tabs, or GPUI
+# canvas elements. This crate (`kkpdf-zed`) is a native workspace engine and
+# GPUI Item implementation intended for upstream integration into Zed core or
+# custom editor builds.
+#
+# This file records the metadata identity for a future upstream extension RFC.
+# ==============================================================================
+
+id = "kkpdf-zed"
+name = "PDF Viewer"
+version = "0.1.0"
+schema_version = 1
+authors = ["Kushagra Kumar <kkushagra86@gmail.com>"]
+description = "High-performance native PDF viewing engine for Zed Editor with continuous scrolling, live-reload, and luminosity dark mode."
+repository = "https://github.com/kk376/kkpdf-zed"
