@@ -409,6 +409,212 @@ impl PdfiumEngine {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PdfLinkAnnotation {
+    pub url: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PdfTextSegment {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PdfPageDetails {
+    pub page_index: usize,
+    pub width_pt: f32,
+    pub height_pt: f32,
+    pub text: String,
+    pub links: Vec<PdfLinkAnnotation>,
+    pub text_segments: Vec<PdfTextSegment>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PdfDocumentDetails {
+    pub total_pages: usize,
+    pub full_text: String,
+    pub pages: Vec<PdfPageDetails>,
+}
+
+impl PdfiumEngine {
+    /// Extracts full document details including text, text segments with bounding boxes, and links.
+    pub fn extract_document_details(&self, bytes: &[u8]) -> Result<PdfDocumentDetails> {
+        let guard = self.inner.lock();
+        if let Some(ref pdfium) = guard.0 {
+            let doc = pdfium
+                .load_pdf_from_byte_slice(bytes, None)
+                .context("Failed to load PDF for metadata extraction")?;
+
+            let mut pages_details = Vec::new();
+            let mut full_text = String::new();
+
+            for (idx, page) in doc.pages().iter().enumerate() {
+                let page_w = page.width().value;
+                let page_h = page.height().value;
+                let mut page_text = String::new();
+                let mut segments = Vec::new();
+                let mut links = Vec::new();
+
+                // 1. Text and Text Segments
+                if let Ok(text_page) = page.text() {
+                    page_text = text_page.all();
+                    if !page_text.is_empty() {
+                        if idx > 0 {
+                            full_text.push_str("\n\n--- Page ");
+                            full_text.push_str(&(idx + 1).to_string());
+                            full_text.push_str(" ---\n\n");
+                        }
+                        full_text.push_str(&page_text);
+                    }
+
+                    let seg_coll = text_page.segments();
+                    for seg in seg_coll.iter() {
+                        let text = seg.text().trim().to_string();
+                        if !text.is_empty() {
+                            let bounds = seg.bounds();
+                            let left = bounds.left().value.min(bounds.right().value);
+                            let right = bounds.left().value.max(bounds.right().value);
+                            let bottom = bounds.bottom().value.min(bounds.top().value);
+                            let top = bounds.bottom().value.max(bounds.top().value);
+
+                            let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                            let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                            segments.push(PdfTextSegment {
+                                text,
+                                x: norm_x,
+                                y: norm_y,
+                                width: norm_w,
+                                height: norm_h,
+                            });
+                        }
+                    }
+                }
+
+                // 2. Links from page.links()
+                for link in page.links().iter() {
+                    if let Some(action) = link.action() {
+                        if let PdfAction::Uri(uri_action) = action {
+                            if let Ok(url) = uri_action.uri() {
+                                let url_clean = url.trim().to_string();
+                                if !url_clean.is_empty() {
+                                    if let Ok(rect) = link.rect() {
+                                        let left = rect.left().value.min(rect.right().value);
+                                        let right = rect.left().value.max(rect.right().value);
+                                        let bottom = rect.bottom().value.min(rect.top().value);
+                                        let top = rect.bottom().value.max(rect.top().value);
+
+                                        let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                        let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                        let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                        let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                                        links.push(PdfLinkAnnotation {
+                                            url: url_clean,
+                                            x: norm_x,
+                                            y: norm_y,
+                                            width: norm_w,
+                                            height: norm_h,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Links from page.annotations()
+                for annot in page.annotations().iter() {
+                    if let Some(link_annot) = annot.as_link_annotation() {
+                        if let Ok(link) = link_annot.link() {
+                            if let Some(action) = link.action() {
+                                if let PdfAction::Uri(uri_action) = action {
+                                    if let Ok(url) = uri_action.uri() {
+                                        let url_clean = url.trim().to_string();
+                                        if !url_clean.is_empty() {
+                                            if let Ok(rect) = link.rect() {
+                                                let left = rect.left().value.min(rect.right().value);
+                                                let right = rect.left().value.max(rect.right().value);
+                                                let bottom = rect.bottom().value.min(rect.top().value);
+                                                let top = rect.bottom().value.max(rect.top().value);
+
+                                                let norm_x = if page_w > 0.0 { (left / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                                let norm_y = if page_h > 0.0 { ((page_h - top) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                                let norm_w = if page_w > 0.0 { ((right - left) / page_w).clamp(0.0, 1.0) as f32 } else { 0.0 };
+                                                let norm_h = if page_h > 0.0 { ((top - bottom) / page_h).clamp(0.0, 1.0) as f32 } else { 0.0 };
+
+                                                let exists = links.iter().any(|l| l.url == url_clean && (l.x - norm_x).abs() < 0.01 && (l.y - norm_y).abs() < 0.01);
+                                                if !exists {
+                                                    links.push(PdfLinkAnnotation {
+                                                        url: url_clean,
+                                                        x: norm_x,
+                                                        y: norm_y,
+                                                        width: norm_w,
+                                                        height: norm_h,
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Text URLs from segments (heuristic for raw text URLs)
+                for seg in &segments {
+                    let text = seg.text.trim();
+                    if text.starts_with("http://") || text.starts_with("https://") || text.starts_with("www.") {
+                        let url = if text.starts_with("www.") {
+                            format!("https://{}", text)
+                        } else {
+                            text.to_string()
+                        };
+                        let exists = links.iter().any(|l| (l.x - seg.x).abs() < 0.02 && (l.y - seg.y).abs() < 0.02);
+                        if !exists {
+                            links.push(PdfLinkAnnotation {
+                                url,
+                                x: seg.x,
+                                y: seg.y,
+                                width: seg.width,
+                                height: seg.height,
+                            });
+                        }
+                    }
+                }
+
+                pages_details.push(PdfPageDetails {
+                    page_index: idx,
+                    width_pt: page_w,
+                    height_pt: page_h,
+                    text: page_text,
+                    links,
+                    text_segments: segments,
+                });
+            }
+
+            Ok(PdfDocumentDetails {
+                total_pages: pages_details.len(),
+                full_text,
+                pages: pages_details,
+            })
+        } else {
+            Ok(PdfDocumentDetails::default())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,13 +671,14 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_text_from_bytes() {
+    fn test_extract_document_details() {
         let engine = PdfiumEngine {
             inner: Arc::new(Mutex::new(SerializedPdfium(None))),
         };
         let dummy_pdf = b"%PDF-1.7\nSample";
-        let text = engine.extract_text_from_bytes(dummy_pdf, None);
-        assert!(text.is_ok());
-        assert_eq!(text.unwrap(), "");
+        let details = engine.extract_document_details(dummy_pdf);
+        assert!(details.is_ok());
+        let doc = details.unwrap();
+        assert_eq!(doc.total_pages, 0);
     }
 }

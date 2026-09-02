@@ -21,7 +21,9 @@ pub mod watcher;
 
 pub use cache::{CacheKey, PageLruCache, RenderedPage, DEFAULT_MEMORY_BUDGET_BYTES};
 pub use document::{PageDimensions, PdfDocument};
-pub use pdfium::PdfiumEngine;
+pub use pdfium::{
+    PdfDocumentDetails, PdfLinkAnnotation, PdfPageDetails, PdfTextSegment, PdfiumEngine,
+};
 pub use rasterizer::{LuminosityToneMapper, PageRasterizer, RasterizerOptions};
 pub use settings::{DefaultZoomPolicy, PageLayoutMode, PdfViewerSettings};
 pub use ui::{PdfToolbarAction, PdfToolbarState};
