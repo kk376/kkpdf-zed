@@ -366,6 +366,47 @@ impl PdfiumEngine {
             ))
         }
     }
+
+    /// Extracts text from a specific page (0-indexed) or the entire document if page_index is None.
+    pub fn extract_text_from_bytes(
+        &self,
+        bytes: &[u8],
+        page_index: Option<usize>,
+    ) -> Result<String> {
+        let guard = self.inner.lock();
+        if let Some(ref pdfium) = guard.0 {
+            let doc = pdfium
+                .load_pdf_from_byte_slice(bytes, None)
+                .context("Failed to load PDF for text extraction")?;
+
+            if let Some(idx) = page_index {
+                let page = doc
+                    .pages()
+                    .get(idx as u16)
+                    .context("Requested page index out of bounds")?;
+                let text_page = page.text().context("Failed to load page text")?;
+                Ok(text_page.all())
+            } else {
+                let mut full_text = String::new();
+                for (idx, page) in doc.pages().iter().enumerate() {
+                    if let Ok(text_page) = page.text() {
+                        let page_text = text_page.all();
+                        if !page_text.is_empty() {
+                            if idx > 0 {
+                                full_text.push_str("\n\n--- Page ");
+                                full_text.push_str(&(idx + 1).to_string());
+                                full_text.push_str(" ---\n\n");
+                            }
+                            full_text.push_str(&page_text);
+                        }
+                    }
+                }
+                Ok(full_text)
+            }
+        } else {
+            Ok(String::new())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -421,5 +462,16 @@ mod tests {
             rendered.rgba_buffer.len(),
             (rendered.width * rendered.height * 4) as usize
         );
+    }
+
+    #[test]
+    fn test_extract_text_from_bytes() {
+        let engine = PdfiumEngine {
+            inner: Arc::new(Mutex::new(SerializedPdfium(None))),
+        };
+        let dummy_pdf = b"%PDF-1.7\nSample";
+        let text = engine.extract_text_from_bytes(dummy_pdf, None);
+        assert!(text.is_ok());
+        assert_eq!(text.unwrap(), "");
     }
 }
