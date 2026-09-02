@@ -48,14 +48,35 @@ impl PdfiumEngine {
 
     /// Attempts to bind to dynamic `libpdfium.so`, `libpdfium.dylib`, or `pdfium.dll`.
     fn try_init_pdfium() -> Option<Pdfium> {
-        // 1. Try standard system library search path
+        // 1. Try environment variable override
+        if let Ok(env_path) = std::env::var("PDFIUM_PATH").or_else(|_| std::env::var("PDFIUM_LIB_PATH")) {
+            let path = Path::new(&env_path);
+            if path.exists() {
+                if let Ok(bindings) = Pdfium::bind_to_library(path) {
+                    log::info!("Successfully bound to Pdfium from environment at {}", env_path);
+                    return Some(Pdfium::new(bindings));
+                }
+            }
+        }
+
+        // 2. Try standard system library search path
         if let Ok(bindings) = Pdfium::bind_to_system_library() {
             log::info!("Successfully initialized Pdfium from system dynamic library");
             return Some(Pdfium::new(bindings));
         }
 
-        // 2. Try common Linux/macOS shared object locations
+        // 3. Try common Linux/macOS shared object locations
+        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/kk376".to_string());
+        let user_local_lib = format!("{home_dir}/.local/lib/libpdfium.so");
+        let user_local_dylib = format!("{home_dir}/.local/lib/libpdfium.dylib");
+
         let common_paths = [
+            "lib/libpdfium.so",
+            "./lib/libpdfium.so",
+            "../lib/libpdfium.so",
+            "../../lib/libpdfium.so",
+            &user_local_lib,
+            &user_local_dylib,
             "/usr/lib/libpdfium.so",
             "/usr/lib64/libpdfium.so",
             "/usr/local/lib/libpdfium.so",

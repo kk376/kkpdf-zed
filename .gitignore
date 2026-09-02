@@ -1,4 +1,8 @@
 /target
+/lib
+*.so
+*.dylib
+*.dll
 **/*.rs.bk
 *.pdf
 .DS_Store
