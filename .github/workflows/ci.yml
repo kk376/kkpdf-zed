@@ -12,8 +12,12 @@ env:
 
 jobs:
   test:
-    name: Test & Lint Suite
-    runs-on: ubuntu-latest
+    name: Test & Lint Suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -23,13 +27,26 @@ jobs:
           components: clippy, rustfmt
 
       - name: Rustfmt Check
+        if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --check
 
+      - name: Download prebuilt Pdfium dynamic library
+        run: bash scripts/download_pdfium.sh "${{ github.workspace }}/lib"
+
       - name: Clippy Audit
+        env:
+          PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Test Suite (Low Concurrency)
-        run: cargo test -j 2 --all-targets -- --nocapture
+      - name: Test Suite (Native Pdfium Rendering)
+        env:
+          PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
+        run: cargo test --all-targets -- --nocapture
+
+      - name: Run Standalone Benchmark Runner
+        env:
+          PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
+        run: cargo run --example viewer
 
   security-audit:
     name: Security Vulnerability Audit

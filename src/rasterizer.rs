@@ -47,7 +47,7 @@ impl LuminosityToneMapper {
     /// Applies dark mode tone mapping in-place on an RGBA8 buffer.
     pub fn apply(rgba_buffer: &mut [u8], saturation_threshold: f32) {
         // Chunk by 4 bytes: [R, G, B, A]
-        for pixel in rgba_buffer.as_chunks_mut::<4>().0 {
+        for pixel in rgba_buffer.chunks_exact_mut(4) {
             let r = pixel[0] as f32;
             let g = pixel[1] as f32;
             let b = pixel[2] as f32;

@@ -3,7 +3,7 @@
 //! Stores rendered RGBA framebuffers indexed by `(page_index, zoom_bucket, dark_mode)`.
 //! Automatically evicts oldest unused pages when memory consumption exceeds the configured budget.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Default maximum memory budget: 256 Megabytes.
@@ -67,14 +67,26 @@ impl RenderedPage {
     }
 }
 
-/// A Least-Recently-Used (LRU) cache bounded by byte size and item limits.
+/// Internal node in the intrusive doubly-linked LRU chain.
+#[derive(Debug)]
+struct LruNode {
+    key: CacheKey,
+    page: RenderedPage,
+    prev: Option<usize>,
+    next: Option<usize>,
+}
+
+/// A Least-Recently-Used (LRU) cache bounded by byte size and item limits with O(1) updates and lookups.
 #[derive(Debug)]
 pub struct PageLruCache {
     max_memory_bytes: usize,
     current_memory_bytes: usize,
     max_pages: Option<usize>,
-    entries: HashMap<CacheKey, RenderedPage>,
-    lru_order: VecDeque<CacheKey>,
+    entries: HashMap<CacheKey, usize>,
+    nodes: Vec<Option<LruNode>>,
+    free_slots: Vec<usize>,
+    head: Option<usize>, // least recently used (oldest)
+    tail: Option<usize>, // most recently used (newest)
 }
 
 impl PageLruCache {
@@ -85,7 +97,10 @@ impl PageLruCache {
             current_memory_bytes: 0,
             max_pages: None,
             entries: HashMap::new(),
-            lru_order: VecDeque::new(),
+            nodes: Vec::new(),
+            free_slots: Vec::new(),
+            head: None,
+            tail: None,
         }
     }
 
@@ -95,32 +110,26 @@ impl PageLruCache {
         self
     }
 
-    /// Retrieves a cached page, refreshing its LRU position.
+    /// Retrieves a cached page, refreshing its LRU position in O(1) time.
     pub fn get(&mut self, key: &CacheKey) -> Option<RenderedPage> {
-        if self.entries.contains_key(key) {
-            // Move key to back (most recently used)
-            if let Some(pos) = self.lru_order.iter().position(|k| k == key) {
-                self.lru_order.remove(pos);
-                self.lru_order.push_back(*key);
-            }
-            self.entries.get(key).cloned()
+        if let Some(&idx) = self.entries.get(key) {
+            self.touch(idx);
+            self.nodes[idx].as_ref().map(|n| n.page.clone())
         } else {
             None
         }
     }
 
-    /// Inserts a newly rasterized page into the cache, evicting older pages if needed.
+    /// Inserts a newly rasterized page into the cache in O(1) time, evicting older pages if needed.
     pub fn insert(&mut self, key: CacheKey, page: RenderedPage) {
         let page_size = page.byte_size();
 
-        // If replacing existing entry, remove old size first
-        if let Some(old_page) = self.entries.remove(&key) {
+        // If replacing existing entry, remove old size and node first
+        if let Some(old_idx) = self.entries.remove(&key) {
+            let (_, old_page) = self.free_node(old_idx);
             self.current_memory_bytes = self
                 .current_memory_bytes
                 .saturating_sub(old_page.byte_size());
-            if let Some(pos) = self.lru_order.iter().position(|k| k == &key) {
-                self.lru_order.remove(pos);
-            }
         }
 
         // Evict until new page fits within budget
@@ -135,9 +144,10 @@ impl PageLruCache {
             return;
         }
 
+        let idx = self.alloc_node(key, page);
+        self.attach_tail(idx);
+        self.entries.insert(key, idx);
         self.current_memory_bytes += page_size;
-        self.entries.insert(key, page);
-        self.lru_order.push_back(key);
     }
 
     /// Evicts oldest entries until at least `needed_bytes` is available.
@@ -159,31 +169,125 @@ impl PageLruCache {
         }
     }
 
-    /// Evicts the single least recently used item. Returns false if cache was empty.
+    /// Evicts the single least recently used item in O(1) time. Returns false if cache was empty.
     fn evict_oldest(&mut self) -> bool {
-        if let Some(oldest_key) = self.lru_order.pop_front() {
-            if let Some(evicted_page) = self.entries.remove(&oldest_key) {
-                self.current_memory_bytes = self
-                    .current_memory_bytes
-                    .saturating_sub(evicted_page.byte_size());
-                log::debug!(
-                    "Evicted page {page_idx} (zoom: {zoom}) to free {bytes} bytes (current memory: {cur} / {max})",
-                    page_idx = oldest_key.page_index,
-                    zoom = oldest_key.zoom_bucket,
-                    bytes = evicted_page.byte_size(),
-                    cur = self.current_memory_bytes,
-                    max = self.max_memory_bytes
-                );
-                return true;
-            }
+        if let Some(oldest_idx) = self.head {
+            let (oldest_key, evicted_page) = self.free_node(oldest_idx);
+            self.entries.remove(&oldest_key);
+            self.current_memory_bytes = self
+                .current_memory_bytes
+                .saturating_sub(evicted_page.byte_size());
+            log::debug!(
+                "Evicted page {page_idx} (zoom: {zoom}) to free {bytes} bytes (current memory: {cur} / {max})",
+                page_idx = oldest_key.page_index,
+                zoom = oldest_key.zoom_bucket,
+                bytes = evicted_page.byte_size(),
+                cur = self.current_memory_bytes,
+                max = self.max_memory_bytes
+            );
+            return true;
         }
         false
+    }
+
+    /// Unlinks a node from the doubly-linked list in O(1) time.
+    fn unlink(&mut self, idx: usize) {
+        let (prev, next) = match self.nodes.get(idx).and_then(|n| n.as_ref()) {
+            Some(node) => (node.prev, node.next),
+            None => return,
+        };
+
+        if let Some(p) = prev {
+            if let Some(Some(p_node)) = self.nodes.get_mut(p) {
+                p_node.next = next;
+            }
+        } else {
+            self.head = next;
+        }
+
+        if let Some(n) = next {
+            if let Some(Some(n_node)) = self.nodes.get_mut(n) {
+                n_node.prev = prev;
+            }
+        } else {
+            self.tail = prev;
+        }
+
+        if let Some(Some(node)) = self.nodes.get_mut(idx) {
+            node.prev = None;
+            node.next = None;
+        }
+    }
+
+    /// Attaches an existing node to the tail (most recently used) in O(1) time.
+    fn attach_tail(&mut self, idx: usize) {
+        let old_tail = self.tail;
+        if let Some(t) = old_tail {
+            if let Some(Some(t_node)) = self.nodes.get_mut(t) {
+                t_node.next = Some(idx);
+            }
+            if let Some(Some(node)) = self.nodes.get_mut(idx) {
+                node.prev = Some(t);
+                node.next = None;
+            }
+            self.tail = Some(idx);
+        } else {
+            if let Some(Some(node)) = self.nodes.get_mut(idx) {
+                node.prev = None;
+                node.next = None;
+            }
+            self.head = Some(idx);
+            self.tail = Some(idx);
+        }
+    }
+
+    /// Refreshes the position of a node, moving it to the tail (MRU) in O(1) time.
+    fn touch(&mut self, idx: usize) {
+        if self.tail == Some(idx) {
+            return;
+        }
+        self.unlink(idx);
+        self.attach_tail(idx);
+    }
+
+    /// Allocates or reuses a node slot in O(1) time.
+    fn alloc_node(&mut self, key: CacheKey, page: RenderedPage) -> usize {
+        let new_node = LruNode {
+            key,
+            page,
+            prev: None,
+            next: None,
+        };
+
+        if let Some(slot) = self.free_slots.pop() {
+            self.nodes[slot] = Some(new_node);
+            slot
+        } else {
+            let slot = self.nodes.len();
+            self.nodes.push(Some(new_node));
+            slot
+        }
+    }
+
+    /// Frees a node slot, unlinking it and returning its payload in O(1) time.
+    fn free_node(&mut self, idx: usize) -> (CacheKey, RenderedPage) {
+        self.unlink(idx);
+        let node = self
+            .nodes
+            .get_mut(idx)
+            .and_then(|n| n.take())
+            .expect("node must exist when freed");
+        self.free_slots.push(idx);
+        (node.key, node.page)
     }
 
     /// Clears all entries from the cache and resets memory tracking.
     pub fn clear(&mut self) {
         self.entries.clear();
-        self.lru_order.clear();
+        self.nodes.clear();
+        self.free_slots.clear();
+        self.head = None;
+        self.tail = None;
         self.current_memory_bytes = 0;
     }
 
@@ -299,5 +403,38 @@ mod tests {
             "Page 1 was oldest and should be evicted"
         );
         assert!(cache.get(&key2).is_some(), "Page 2 is newly inserted");
+    }
+
+    #[test]
+    fn test_lru_key_replacement_and_max_pages() {
+        let mut cache = PageLruCache::new(10 * 1024 * 1024).with_max_pages(2);
+        let key = CacheKey::new(0, 1.0, false);
+        let page_a = RenderedPage::new(0, 10, 10, 1.0, false, vec![0u8; 400]);
+        let page_b = RenderedPage::new(0, 10, 10, 1.0, false, vec![1u8; 400]);
+
+        cache.insert(key, page_a);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.memory_usage(), 400);
+
+        // Overwrite key
+        cache.insert(key, page_b);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.memory_usage(), 400);
+
+        // Add 2 more keys to trigger max_pages limit
+        let key1 = CacheKey::new(1, 1.0, false);
+        let page1 = RenderedPage::new(1, 10, 10, 1.0, false, vec![0u8; 400]);
+        cache.insert(key1, page1);
+        assert_eq!(cache.len(), 2);
+
+        let key2 = CacheKey::new(2, 1.0, false);
+        let page2 = RenderedPage::new(2, 10, 10, 1.0, false, vec![0u8; 400]);
+        cache.insert(key2, page2);
+        assert_eq!(cache.len(), 2);
+
+        // Key 0 was oldest, should be evicted
+        assert!(cache.get(&key).is_none());
+        assert!(cache.get(&key1).is_some());
+        assert!(cache.get(&key2).is_some());
     }
 }

@@ -16,19 +16,6 @@ pub const MAX_ZOOM: f32 = 20.0;
 pub const ZOOM_STEP: f32 = 1.15;
 pub const PAGE_SPACING_PX: f32 = 16.0;
 
-/// Viewer event emitted to notify subscribers (e.g. tabs, breadcrumbs, toolbar).
-#[derive(Debug, Clone, PartialEq)]
-pub enum PdfViewEvent {
-    /// Document title or filename changed.
-    TitleChanged,
-    /// Active page changed.
-    PageChanged(usize),
-    /// Active zoom level changed.
-    ZoomChanged(f32),
-    /// Document successfully reloaded from disk.
-    Reloaded,
-}
-
 /// Core state representation for an interactive PDF viewing session.
 pub struct PdfView {
     pub(crate) document: Option<PdfDocument>,

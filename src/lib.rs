@@ -27,5 +27,5 @@ pub use pdfium::{
 pub use rasterizer::{LuminosityToneMapper, PageRasterizer, RasterizerOptions};
 pub use settings::{DefaultZoomPolicy, PageLayoutMode, PdfViewerSettings};
 pub use ui::{PdfToolbarAction, PdfToolbarState};
-pub use view::{PdfView, PdfViewEvent, MAX_ZOOM, MIN_ZOOM, PAGE_SPACING_PX, ZOOM_STEP};
+pub use view::{PdfView, MAX_ZOOM, MIN_ZOOM, PAGE_SPACING_PX, ZOOM_STEP};
 pub use watcher::{PdfReloadDebouncer, ViewerStateSnapshot};
