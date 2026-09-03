@@ -33,6 +33,26 @@ static GLOBAL_PDFIUM: OnceLock<Arc<Mutex<SerializedPdfium>>> = OnceLock::new();
 /// preventing out-of-memory denial of service attacks from malicious documents.
 pub const MAX_PAGE_DIMENSION: f32 = 8192.0;
 
+/// Maximum number of pages permitted for continuous document stitching.
+/// Large documents must use viewport-bounded tile rendering or per-page rendering to avoid multi-GB OOM.
+pub const MAX_COMPOSITE_PAGES: usize = 16;
+
+/// Maximum composite bitmap height in pixels to avoid massive memory allocations (32K px).
+pub const MAX_COMPOSITE_HEIGHT: u32 = 32_768;
+
+/// Maximum buffer size for composite document rendering (64 MB).
+pub const MAX_COMPOSITE_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+
+/// Validates that the input byte slice starts with the standard PDF magic header (`%PDF-`).
+/// Protects against sending arbitrary or malformed data into native C++ parser entry points.
+#[inline]
+pub fn validate_pdf_bytes(bytes: &[u8]) -> Result<()> {
+    if bytes.len() < 5 || &bytes[0..5] != b"%PDF-" {
+        anyhow::bail!("Invalid PDF header magic bytes: expected %PDF-");
+    }
+    Ok(())
+}
+
 /// Thread-safe wrapper around a Pdfium instance.
 #[derive(Clone)]
 pub struct PdfiumEngine {
@@ -77,16 +97,34 @@ impl PdfiumEngine {
             return Some(Pdfium::new(bindings));
         }
 
-        // 3. Try common Linux/macOS shared object locations
-        let mut common_paths: Vec<PathBuf> = vec![
-            PathBuf::from("lib/libpdfium.so"),
-            PathBuf::from("./lib/libpdfium.so"),
-            PathBuf::from("../lib/libpdfium.so"),
-            PathBuf::from("../../lib/libpdfium.so"),
-        ];
+        // 3. Try secure executable directory and user/system shared object locations
+        let mut common_paths: Vec<PathBuf> = Vec::new();
+
+        // Safe relative path to the executing binary
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(exe_dir) = current_exe.parent() {
+                common_paths.push(exe_dir.join("libpdfium.so"));
+                common_paths.push(exe_dir.join("lib").join("libpdfium.so"));
+                common_paths.push(exe_dir.join("libpdfium.dylib"));
+                common_paths.push(exe_dir.join("lib").join("libpdfium.dylib"));
+            }
+        }
+
+        // Build/development manifest directory (safe at compile-time/development)
+        if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+            let manifest_path = Path::new(manifest_dir);
+            common_paths.push(manifest_path.join("lib").join("libpdfium.so"));
+            common_paths.push(manifest_path.join("lib").join("libpdfium.dylib"));
+        }
 
         if let Ok(home_dir) = std::env::var("HOME") {
             if !home_dir.trim().is_empty() {
+                common_paths.push(PathBuf::from(format!(
+                    "{home_dir}/.local/share/kkpdf-zed/lib/libpdfium.so"
+                )));
+                common_paths.push(PathBuf::from(format!(
+                    "{home_dir}/.local/share/kkpdf-zed/lib/libpdfium.dylib"
+                )));
                 common_paths.push(PathBuf::from(format!("{home_dir}/.local/lib/libpdfium.so")));
                 common_paths.push(PathBuf::from(format!(
                     "{home_dir}/.local/lib/libpdfium.dylib"
@@ -133,6 +171,7 @@ impl PdfiumEngine {
         bytes: &[u8],
         path: Option<PathBuf>,
     ) -> Result<PdfDocument> {
+        validate_pdf_bytes(bytes)?;
         let guard = self.inner.lock();
         if let Some(ref pdfium) = guard.0 {
             let doc = pdfium
@@ -165,6 +204,7 @@ impl PdfiumEngine {
         page_index: usize,
         options: RasterizerOptions,
     ) -> Result<RenderedPage> {
+        validate_pdf_bytes(bytes)?;
         let guard = self.inner.lock();
         if let Some(ref pdfium) = guard.0 {
             let doc = pdfium
@@ -215,14 +255,23 @@ impl PdfiumEngine {
             crate::rasterizer::PageRasterizer::render_mock_page(page_index, dim, options)
         }
     }
-    /// Rasterizes all pages from file bytes into a continuous vertical layout,
-    /// stitching them together with a configurable page spacing and margin.
-    pub fn render_document_from_bytes(
+
+    /// Rasterizes a bounded viewport range of pages from file bytes into a continuous vertical layout,
+    /// enforcing strict page budget caps and memory bounds to eliminate multi-GB OOM DoS vulnerabilities.
+    pub fn render_document_range_from_bytes(
         &self,
         bytes: &[u8],
+        start_page: usize,
+        page_budget: usize,
         options: RasterizerOptions,
         page_gap: u32,
     ) -> Result<RenderedPage> {
+        validate_pdf_bytes(bytes)?;
+        if page_budget == 0 {
+            anyhow::bail!("Page budget must be greater than zero");
+        }
+        let max_pages = page_budget.min(MAX_COMPOSITE_PAGES);
+
         let guard = self.inner.lock();
         if let Some(ref pdfium) = guard.0 {
             let doc = pdfium
@@ -233,9 +282,24 @@ impl PdfiumEngine {
             if total_pages == 0 {
                 anyhow::bail!("PDF document contains no pages");
             }
+            if start_page >= total_pages {
+                anyhow::bail!(
+                    "Start page index {} out of bounds (total: {})",
+                    start_page,
+                    total_pages
+                );
+            }
 
-            let mut rendered_pages = Vec::with_capacity(total_pages);
-            for (idx, page) in doc.pages().iter().enumerate() {
+            let end_page = (start_page + max_pages).min(total_pages);
+            let count = end_page - start_page;
+
+            let mut rendered_pages = Vec::with_capacity(count);
+            for idx in start_page..end_page {
+                let page = doc
+                    .pages()
+                    .get(idx as u16)
+                    .context("Requested page index out of bounds")?;
+
                 let target_width =
                     (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
                         .round()
@@ -266,10 +330,26 @@ impl PdfiumEngine {
 
             let max_width = rendered_pages.iter().map(|(w, _, _)| *w).max().unwrap_or(1);
             let total_height: u32 = rendered_pages.iter().map(|(_, h, _)| *h).sum::<u32>()
-                + ((total_pages as u32 - 1) * page_gap);
+                + ((count as u32 - 1) * page_gap);
+
+            if total_height > MAX_COMPOSITE_HEIGHT {
+                anyhow::bail!(
+                    "Total composite height ({} px) exceeds maximum limit ({} px)",
+                    total_height,
+                    MAX_COMPOSITE_HEIGHT
+                );
+            }
 
             let stride = (max_width as usize) * 4;
             let total_bytes = stride * (total_height as usize);
+
+            if total_bytes > MAX_COMPOSITE_BUFFER_BYTES {
+                anyhow::bail!(
+                    "Composite document buffer size ({} bytes) exceeds safety budget ({} bytes). Use per-page rendering.",
+                    total_bytes,
+                    MAX_COMPOSITE_BUFFER_BYTES
+                );
+            }
 
             let bg_color = if options.dark_mode {
                 [24u8, 24, 37, 255]
@@ -303,7 +383,7 @@ impl PdfiumEngine {
             }
 
             Ok(RenderedPage::new(
-                0,
+                start_page,
                 max_width,
                 total_height,
                 options.zoom_factor,
@@ -316,15 +396,26 @@ impl PdfiumEngine {
             if total_pages == 0 {
                 anyhow::bail!("PDF document contains no pages");
             }
-            if total_pages == 1 {
-                let dim = doc
-                    .page_size(0)
-                    .unwrap_or(PageDimensions::new(612.0, 792.0));
-                return PageRasterizer::render_mock_page(0, dim, options);
+            if start_page >= total_pages {
+                anyhow::bail!(
+                    "Start page index {} out of bounds (total: {})",
+                    start_page,
+                    total_pages
+                );
             }
 
-            let mut rendered_pages = Vec::with_capacity(total_pages);
-            for i in 0..total_pages {
+            let end_page = (start_page + max_pages).min(total_pages);
+            let count = end_page - start_page;
+
+            if count == 1 {
+                let dim = doc
+                    .page_size(start_page)
+                    .unwrap_or(PageDimensions::new(612.0, 792.0));
+                return PageRasterizer::render_mock_page(start_page, dim, options);
+            }
+
+            let mut rendered_pages = Vec::with_capacity(count);
+            for i in start_page..end_page {
                 let dim = doc
                     .page_size(i)
                     .unwrap_or(PageDimensions::new(612.0, 792.0));
@@ -334,10 +425,26 @@ impl PdfiumEngine {
 
             let max_width = rendered_pages.iter().map(|(w, _, _)| *w).max().unwrap_or(1);
             let total_height: u32 = rendered_pages.iter().map(|(_, h, _)| *h).sum::<u32>()
-                + ((total_pages as u32 - 1) * page_gap);
+                + ((count as u32 - 1) * page_gap);
+
+            if total_height > MAX_COMPOSITE_HEIGHT {
+                anyhow::bail!(
+                    "Total composite height ({} px) exceeds maximum limit ({} px)",
+                    total_height,
+                    MAX_COMPOSITE_HEIGHT
+                );
+            }
 
             let stride = (max_width as usize) * 4;
             let total_bytes = stride * (total_height as usize);
+
+            if total_bytes > MAX_COMPOSITE_BUFFER_BYTES {
+                anyhow::bail!(
+                    "Composite document buffer size ({} bytes) exceeds safety budget ({} bytes). Use per-page rendering.",
+                    total_bytes,
+                    MAX_COMPOSITE_BUFFER_BYTES
+                );
+            }
 
             let bg_color = if options.dark_mode {
                 [24u8, 24, 37, 255]
@@ -371,7 +478,7 @@ impl PdfiumEngine {
             }
 
             Ok(RenderedPage::new(
-                0,
+                start_page,
                 max_width,
                 total_height,
                 options.zoom_factor,
@@ -381,12 +488,25 @@ impl PdfiumEngine {
         }
     }
 
+    /// Rasterizes pages from file bytes into a continuous vertical layout,
+    /// bounded by `MAX_COMPOSITE_PAGES` to prevent multi-GB memory exhaustion.
+    pub fn render_document_from_bytes(
+        &self,
+        bytes: &[u8],
+        options: RasterizerOptions,
+        page_gap: u32,
+    ) -> Result<RenderedPage> {
+        validate_pdf_bytes(bytes)?;
+        self.render_document_range_from_bytes(bytes, 0, MAX_COMPOSITE_PAGES, options, page_gap)
+    }
+
     /// Extracts text from a specific page (0-indexed) or the entire document if page_index is None.
     pub fn extract_text_from_bytes(
         &self,
         bytes: &[u8],
         page_index: Option<usize>,
     ) -> Result<String> {
+        validate_pdf_bytes(bytes)?;
         let guard = self.inner.lock();
         if let Some(ref pdfium) = guard.0 {
             let doc = pdfium
@@ -819,6 +939,7 @@ fn extract_page_text_and_links(
 impl PdfiumEngine {
     /// Extracts full document details including text, text segments with bounding boxes, and links.
     pub fn extract_document_details(&self, bytes: &[u8]) -> Result<PdfDocumentDetails> {
+        validate_pdf_bytes(bytes)?;
         let guard = self.inner.lock();
         if let Some(ref pdfium) = guard.0 {
             let doc = pdfium
@@ -860,6 +981,7 @@ impl PdfiumEngine {
         bytes: &[u8],
         options: RasterizerOptions,
     ) -> Result<PdfDocumentRenderResult> {
+        validate_pdf_bytes(bytes)?;
         let guard = self.inner.lock();
         if let Some(ref pdfium) = guard.0 {
             let doc = pdfium
@@ -867,6 +989,13 @@ impl PdfiumEngine {
                 .context("Failed to load PDF for render and extraction")?;
 
             let total_pages = doc.pages().len() as usize;
+            if total_pages > MAX_COMPOSITE_PAGES {
+                anyhow::bail!(
+                    "Document contains {} pages, exceeding maximum batch render budget of {} pages. Use per-page rendering.",
+                    total_pages,
+                    MAX_COMPOSITE_PAGES
+                );
+            }
             let mut full_text = String::new();
             let mut rendered_pages = Vec::with_capacity(total_pages);
 
@@ -917,6 +1046,15 @@ impl PdfiumEngine {
                 pages: rendered_pages,
             })
         } else {
+            let doc = PdfDocument::from_bytes(bytes, None)?;
+            let total_pages = doc.total_pages();
+            if total_pages > MAX_COMPOSITE_PAGES {
+                anyhow::bail!(
+                    "Document contains {} pages, exceeding maximum batch render budget of {} pages. Use per-page rendering.",
+                    total_pages,
+                    MAX_COMPOSITE_PAGES
+                );
+            }
             let dim = PageDimensions::new(612.0, 792.0);
             let page = crate::rasterizer::PageRasterizer::render_mock_page(0, dim, options)?;
             Ok(PdfDocumentRenderResult {
@@ -1030,5 +1168,40 @@ mod tests {
         let tiny_dim: f32 = -50.0;
         let clamped_tiny = tiny_dim.clamp(1.0, MAX_PAGE_DIMENSION);
         assert_eq!(clamped_tiny, 1.0);
+    }
+
+    #[test]
+    fn test_magic_bytes_validation_rejection() {
+        let engine = PdfiumEngine {
+            inner: Arc::new(Mutex::new(SerializedPdfium(None))),
+        };
+
+        let invalid_pdf = b"NOT_A_VALID_PDF_BYTES";
+        let opts = RasterizerOptions::default();
+
+        assert!(validate_pdf_bytes(invalid_pdf).is_err());
+        assert!(engine.load_document_from_bytes(invalid_pdf, None).is_err());
+        assert!(engine.render_page_from_bytes(invalid_pdf, 0, opts).is_err());
+        assert!(engine.render_document_from_bytes(invalid_pdf, opts, 10).is_err());
+        assert!(engine.render_document_range_from_bytes(invalid_pdf, 0, 5, opts, 10).is_err());
+        assert!(engine.extract_text_from_bytes(invalid_pdf, None).is_err());
+        assert!(engine.extract_document_details(invalid_pdf).is_err());
+        assert!(engine.render_and_extract_document_from_bytes(invalid_pdf, opts).is_err());
+    }
+
+    #[test]
+    fn test_composite_page_budget_caps() {
+        let engine = PdfiumEngine {
+            inner: Arc::new(Mutex::new(SerializedPdfium(None))),
+        };
+
+        let dummy_pdf = b"%PDF-1.7\nSample";
+        let opts = RasterizerOptions::default();
+
+        // Budget of 0 must fail immediately
+        assert!(engine.render_document_range_from_bytes(dummy_pdf, 0, 0, opts, 10).is_err());
+
+        // Normal bounded render within budget must succeed
+        assert!(engine.render_document_range_from_bytes(dummy_pdf, 0, 1, opts, 10).is_ok());
     }
 }
