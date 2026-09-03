@@ -1182,11 +1182,17 @@ mod tests {
         assert!(validate_pdf_bytes(invalid_pdf).is_err());
         assert!(engine.load_document_from_bytes(invalid_pdf, None).is_err());
         assert!(engine.render_page_from_bytes(invalid_pdf, 0, opts).is_err());
-        assert!(engine.render_document_from_bytes(invalid_pdf, opts, 10).is_err());
-        assert!(engine.render_document_range_from_bytes(invalid_pdf, 0, 5, opts, 10).is_err());
+        assert!(engine
+            .render_document_from_bytes(invalid_pdf, opts, 10)
+            .is_err());
+        assert!(engine
+            .render_document_range_from_bytes(invalid_pdf, 0, 5, opts, 10)
+            .is_err());
         assert!(engine.extract_text_from_bytes(invalid_pdf, None).is_err());
         assert!(engine.extract_document_details(invalid_pdf).is_err());
-        assert!(engine.render_and_extract_document_from_bytes(invalid_pdf, opts).is_err());
+        assert!(engine
+            .render_and_extract_document_from_bytes(invalid_pdf, opts)
+            .is_err());
     }
 
     #[test]
@@ -1199,9 +1205,13 @@ mod tests {
         let opts = RasterizerOptions::default();
 
         // Budget of 0 must fail immediately
-        assert!(engine.render_document_range_from_bytes(dummy_pdf, 0, 0, opts, 10).is_err());
+        assert!(engine
+            .render_document_range_from_bytes(dummy_pdf, 0, 0, opts, 10)
+            .is_err());
 
         // Normal bounded render within budget must succeed
-        assert!(engine.render_document_range_from_bytes(dummy_pdf, 0, 1, opts, 10).is_ok());
+        assert!(engine
+            .render_document_range_from_bytes(dummy_pdf, 0, 1, opts, 10)
+            .is_ok());
     }
 }
