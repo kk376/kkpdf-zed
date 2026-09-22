@@ -51,6 +51,19 @@ case "${OS}" in
                 ;;
         esac
         ;;
+    msys*|mingw*|cygwin*|windows*)
+        case "${ARCH}" in
+            x86_64|amd64)
+                ARCHIVE="pdfium-win-x64.tgz"
+                EXPECTED_SHA256="61513d611ad200a383456140739be77d156f1e3a2eef22bd89f6c3bda79bdd41"
+                LIB_NAME="pdfium.dll"
+                ;;
+            *)
+                echo "Unsupported Windows architecture: ${ARCH}" >&2
+                exit 1
+                ;;
+        esac
+        ;;
     *)
         echo "Unsupported OS: ${OS}" >&2
         exit 1
@@ -84,13 +97,19 @@ mkdir -p "${TARGET_DIR}"
 echo "==> Extracting ${LIB_NAME} to ${TARGET_DIR}..."
 tar -xzf "${ARCHIVE_PATH}" -C "${TMP_DIR}"
 
-if [[ -f "${TMP_DIR}/lib/${LIB_NAME}" ]]; then
+if [[ -f "${TMP_DIR}/bin/${LIB_NAME}" ]]; then
+    cp -f "${TMP_DIR}/bin/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}"
+elif [[ -f "${TMP_DIR}/lib/${LIB_NAME}" ]]; then
     cp -f "${TMP_DIR}/lib/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}"
 elif [[ -f "${TMP_DIR}/${LIB_NAME}" ]]; then
     cp -f "${TMP_DIR}/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}"
 else
     echo "ERROR: Could not find ${LIB_NAME} inside archive!" >&2
     exit 1
+fi
+
+if [[ -f "${TMP_DIR}/lib/${LIB_NAME}.lib" ]]; then
+    cp -f "${TMP_DIR}/lib/${LIB_NAME}.lib" "${TARGET_DIR}/${LIB_NAME}.lib"
 fi
 
 chmod 755 "${TARGET_DIR}/${LIB_NAME}"
