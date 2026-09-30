@@ -1,5 +1,5 @@
 # ==============================================================================
-# DOCUMENTATION STUB ONLY — NOT A FUNCTIONING EXTENSION MANIFEST
+# DOCUMENTATION STUB ONLY: NOT A FUNCTIONING EXTENSION MANIFEST
 # ==============================================================================
 # Zed's WebAssembly extension loader (WASM / WASI) currently only supports:
 #   - Language Servers (LSP)

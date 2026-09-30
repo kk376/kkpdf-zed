@@ -3,10 +3,10 @@ set -euo pipefail
 
 # scripts/download_pdfium.sh
 # Verified runtime downloader for Google Pdfium dynamic libraries.
-# Source: bblanchon/pdfium-binaries (Chromium 8035)
+# Source: bblanchon/pdfium-binaries (Chromium 8076)
 
-VERSION="8035"
-RELEASE_TAG="chromium%2F8035"
+VERSION="8076"
+RELEASE_TAG="chromium%2F8076"
 BASE_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/${RELEASE_TAG}"
 
 TARGET_DIR="${1:-${HOME}/.local/share/kkpdf-zed/lib}"
@@ -19,12 +19,12 @@ case "${OS}" in
         case "${ARCH}" in
             x86_64)
                 ARCHIVE="pdfium-linux-x64.tgz"
-                EXPECTED_SHA256="2e6db042dd2cff2d5247023dbec6c7ebb800042ce83c835d6468d45229669bd4"
+                EXPECTED_SHA256="d9d67bc40af03aef4fe28a60b19b1086f28ace019c8c9caf19cb7fe3d14ceca3"
                 LIB_NAME="libpdfium.so"
                 ;;
             aarch64|arm64)
                 ARCHIVE="pdfium-linux-arm64.tgz"
-                EXPECTED_SHA256="10bb7728a5268593a31c2024e0e57ea26b73b7a54195054f43d2ad0869d55a48"
+                EXPECTED_SHA256="d7247b33ae5545615a5e877235dd97afc879e3a8805689684f528cae3339d352"
                 LIB_NAME="libpdfium.so"
                 ;;
             *)
@@ -37,12 +37,12 @@ case "${OS}" in
         case "${ARCH}" in
             x86_64)
                 ARCHIVE="pdfium-mac-x64.tgz"
-                EXPECTED_SHA256="9170dd3bb0f14a712369dd8a1978e77e0b5a05c4371aca2ee49727daabf3201a"
+                EXPECTED_SHA256="40865f34642c34d82cc336132df9e0347133f4692cd46776647af160f9a5cca9"
                 LIB_NAME="libpdfium.dylib"
                 ;;
             arm64|aarch64)
                 ARCHIVE="pdfium-mac-arm64.tgz"
-                EXPECTED_SHA256="308fd9c6eff1be5b7bde62e7a9a42f525075901314a2a50058ae0b6ea0ff30a2"
+                EXPECTED_SHA256="0d6781fe08906baff3d82c90953e519fbc4eb253fe76431e5ed53b157763b97c"
                 LIB_NAME="libpdfium.dylib"
                 ;;
             *)
@@ -55,7 +55,7 @@ case "${OS}" in
         case "${ARCH}" in
             x86_64|amd64)
                 ARCHIVE="pdfium-win-x64.tgz"
-                EXPECTED_SHA256="61513d611ad200a383456140739be77d156f1e3a2eef22bd89f6c3bda79bdd41"
+                EXPECTED_SHA256="808d36da9bc5a3104315fb307c80998121f565ee53953633bf33e80d7429e5ac"
                 LIB_NAME="pdfium.dll"
                 ;;
             *)

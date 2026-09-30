@@ -46,7 +46,7 @@ A native, high-performance PDF viewing engine and GPUI workspace item engineered
 
 1. **Zero UI-Thread Blocking (120 FPS Target)**: PDF parsing and rasterization never execute on GPUI's main render loop. Work is dispatched to background tasks that stream RGBA framebuffers into memory.
 2. **Viewport Virtualization & LRU Caching**: Pages are rasterized on-demand for the visible viewport plus a 1-page prefetch margin. Stale or passed-by in-flight render requests are cancelled during fast scrolls to prevent thread pool starvation.
-3. **Luminosity-Threshold Dark Mode**: Unlike simple blanket RGB inversion (which turns photos and charts into negative ghosts), `kkpdf-zed` implements selective tone mapping—remapping near-white canvas backgrounds to editor background tones and near-black text to theme light text, while preserving saturated color images.
+3. **Luminosity-Threshold Dark Mode**: Unlike simple blanket RGB inversion (which turns photos and charts into negative ghosts), `kkpdf-zed` implements selective tone mapping, remapping near-white canvas backgrounds to editor background tones and near-black text to theme light text, while preserving saturated color images.
 4. **Scroll & Zoom Preserving Live Reload**: Watches the underlying PDF on disk (via file system notifications) and reloads seamlessly without resetting the user's scroll percentage or zoom level.
 
 ---
