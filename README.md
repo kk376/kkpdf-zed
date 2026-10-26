@@ -105,7 +105,16 @@ PDFIUM_LIB_DIR="${PWD}/lib" cargo test
 
 ---
 
-## 6. Prior Art & Acknowledgements
+## 6. Community Distributions & Downstream Builds
+
+The wider Zed community has packaged and extended `kkpdf-zed` for end-user workflows:
+
+- **[TendonT52/zed-with-pdf-viewer](https://github.com/TendonT52/zed-with-pdf-viewer)**: Provides prebuilt, ready-to-run macOS application bundles (`.dmg` for Apple Silicon `aarch64` and Intel `x86_64`) that track upstream Zed stable releases with native PDF rendering built in.
+- **[HomoY/zed-with-pdf-viewer-synctex](https://github.com/HomoY/zed-with-pdf-viewer-synctex)**: Extends downstream Zed PDF integration with bidirectional **SyncTeX** support for LaTeX and Typst workflows (<kbd>Cmd</kbd>-click PDF to jump to TeX source; <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>J</kbd> to jump from editor to PDF viewport).
+
+---
+
+## 7. Prior Art & Acknowledgements
 
 `kkpdf-zed` is a clean-room, native Rust implementation designed specifically for Zed's GPUI framework. We gratefully acknowledge the open source projects that inspired our workflow and interface concepts:
 
@@ -119,7 +128,7 @@ PDFIUM_LIB_DIR="${PWD}/lib" cargo test
 
 ---
 
-## 7. License
+## 8. License
 
 This project is dual-licensed under either:
 
