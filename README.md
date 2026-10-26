@@ -36,12 +36,12 @@ A native, high-performance PDF viewing engine and GPUI workspace item engineered
                        (Visible Viewport + 1-Page Margin)
                                         │
                                         ▼
-                [Luminosity Tone-Mapping Engine (`ui/page.rs`)]
+                [Luminosity Tone-Mapping Engine (`rasterizer.rs`)]
                                         │
                        (Inverts White/Black; Preserves Images)
                                         │
                                         ▼
-                  [Native GPUI Canvas / Bitmap Painter (`view.rs`)]
+                [Viewport State & Geometry Engine (`view.rs`)]
 ```
 
 1. **Zero UI-Thread Blocking (120 FPS Target)**: PDF parsing and rasterization never execute on GPUI's main render loop. Work is dispatched to background tasks that stream RGBA framebuffers into memory.
@@ -80,12 +80,11 @@ kkpdf-zed/
 └── src/
     ├── lib.rs               # Crate entrypoint & exports
     ├── document.rs          # Thread-safe PdfDocument handle
-    ├── rasterizer.rs        # Async background rendering pipeline
-    ├── cache.rs             # Memory-budgeted LRU cache with eviction
+    ├── rasterizer.rs        # Async background rendering & luminosity tone mapping
+    ├── cache.rs             # Memory-budgeted LRU cache with O(1) eviction
     ├── watcher.rs           # Live-reload file watcher & scroll state
-    ├── view.rs              # GPUI Render & Workspace Item implementation
+    ├── view.rs              # Viewport state machine, navigation & pan/zoom geometry
     └── ui/
-        ├── page.rs          # Bitmap painting & luminosity recolor
         └── toolbar.rs       # Zoom, fit-width & page jump controls
 ```
 
@@ -96,7 +95,12 @@ kkpdf-zed/
 Run unit and integration tests across the caching and rasterization engines:
 
 ```bash
+# Run all unit and integration tests (mock fallback enabled when native library is absent)
 cargo test
+
+# To run tests against native Google Pdfium dynamic libraries:
+bash scripts/download_pdfium.sh "${PWD}/lib"
+PDFIUM_LIB_DIR="${PWD}/lib" cargo test
 ```
 
 ---

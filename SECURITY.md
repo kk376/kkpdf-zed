@@ -1,6 +1,6 @@
 # Security Policy & Defensive Threat Model
 
-`kkpdf-zed` adheres to the **17-Category Vibe-Check Zero-Trust Defensive Engineering Standard**.
+`kkpdf-zed` adheres to strict zero-trust defensive engineering standards.
 
 ---
 
