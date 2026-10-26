@@ -1,4 +1,4 @@
-use kkpdf_zed::{PageLayoutMode, PdfToolbarState, PdfView, PdfViewerSettings};
+use kkpdf_zed::{PageLayoutMode, PdfToolbarState, PdfView, PdfViewerSettings, PdfiumEngine};
 use std::time::Duration;
 
 const MINIMAL_PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n185\n%%EOF\n";
@@ -10,7 +10,7 @@ fn test_end_to_end_pdf_view_lifecycle() {
         ..Default::default()
     };
 
-    let mut view = PdfView::new(settings);
+    let mut view = PdfView::with_engine(settings, PdfiumEngine::with_mock_fallback());
     let sample_pdf = MINIMAL_PDF;
 
     view.load_from_bytes(sample_pdf.to_vec(), None)
@@ -55,7 +55,10 @@ fn test_reload_preserving_exact_viewport_and_zoom() {
         std::fs::write(&pdf_path, MINIMAL_PDF).expect("write");
     }
 
-    let mut view = PdfView::new(PdfViewerSettings::default());
+    let mut view = PdfView::with_engine(
+        PdfViewerSettings::default(),
+        PdfiumEngine::with_mock_fallback(),
+    );
     view.open_file(&pdf_path).expect("open file");
 
     // Simulate user zooming and panning

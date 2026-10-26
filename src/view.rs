@@ -36,10 +36,15 @@ pub struct PdfView {
 impl PdfView {
     /// Creates a new uninitialized PDF view with default settings.
     pub fn new(settings: PdfViewerSettings) -> Self {
+        Self::with_engine(settings, PdfiumEngine::new())
+    }
+
+    /// Creates a new PDF view with an explicit `PdfiumEngine` handle.
+    pub fn with_engine(settings: PdfViewerSettings, engine: PdfiumEngine) -> Self {
         let cache_bytes = settings.cache_budget_mb * 1024 * 1024;
         Self {
             document: None,
-            engine: PdfiumEngine::new(),
+            engine,
             cache: PageLruCache::new(cache_bytes.max(DEFAULT_MEMORY_BUDGET_BYTES)),
             zoom_level: 1.0,
             pan_offset: (0.0, 0.0),
@@ -52,6 +57,11 @@ impl PdfView {
             raw_bytes: None,
             settings,
         }
+    }
+
+    /// Returns a reference to the active PDF engine handle.
+    pub fn engine(&self) -> &PdfiumEngine {
+        &self.engine
     }
 
     /// Loads a PDF document from file path.
@@ -417,7 +427,10 @@ mod tests {
 
     #[test]
     fn test_view_page_navigation() {
-        let mut view = PdfView::new(PdfViewerSettings::default());
+        let mut view = PdfView::with_engine(
+            PdfViewerSettings::default(),
+            PdfiumEngine::with_mock_fallback(),
+        );
         view.load_from_bytes(SAMPLE_VALID_PDF.to_vec(), None)
             .expect("Load");
 
@@ -437,7 +450,10 @@ mod tests {
 
     #[test]
     fn test_view_cache_and_render_cycle() {
-        let mut view = PdfView::new(PdfViewerSettings::default());
+        let mut view = PdfView::with_engine(
+            PdfViewerSettings::default(),
+            PdfiumEngine::with_mock_fallback(),
+        );
         view.load_from_bytes(SAMPLE_VALID_PDF.to_vec(), None)
             .expect("Load");
 
