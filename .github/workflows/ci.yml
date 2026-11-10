@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
@@ -26,11 +33,24 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Cache Cargo dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}-cargo
+
       - name: Rustfmt Check
         if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --check
 
+      - name: Cache prebuilt Pdfium library
+        id: cache-pdfium
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/lib
+          key: pdfium-${{ matrix.os }}-${{ hashFiles('scripts/download_pdfium.sh') }}
+
       - name: Download prebuilt Pdfium dynamic library
+        if: steps.cache-pdfium.outputs.cache-hit != 'true'
         run: bash scripts/download_pdfium.sh "${{ github.workspace }}/lib"
 
       - name: Clippy Audit
@@ -42,6 +62,12 @@ jobs:
         env:
           PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
         run: cargo test --all-targets -- --nocapture
+
+      - name: Test Headless Mock Fallback (No Native Library)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          PDFIUM_MOCK_FALLBACK: "1"
+        run: cargo test --all-targets
 
       - name: Run Standalone Benchmark Runner
         env:
