@@ -14,7 +14,7 @@ anyhow = "1.0"
 log = "0.4"
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
-pdfium-render = { version = "0.8", features = ["image"] }
+pdfium-render = { version = "0.9", features = ["image_025"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [dev-dependencies]

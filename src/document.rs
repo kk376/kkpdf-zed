@@ -131,10 +131,7 @@ impl PdfDocument {
     /// Inspects raw PDF bytes to extract basic page count and geometry.
     /// Fast fallback scanner when native Pdfium context is running in a background task.
     pub fn from_bytes(bytes: &[u8], path: Option<PathBuf>) -> Result<Self> {
-        // Validate PDF magic bytes (%PDF-)
-        if bytes.len() < 5 || &bytes[0..5] != b"%PDF-" {
-            anyhow::bail!("Invalid PDF header magic bytes");
-        }
+        crate::pdfium::validate_pdf_bytes(bytes)?;
 
         // Default standard US Letter (612x792 pt) if full metadata parser not yet invoked
         let default_page = PageDimensions::new(612.0, 792.0);

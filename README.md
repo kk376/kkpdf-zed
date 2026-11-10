@@ -26,9 +26,7 @@ A native, high-performance PDF viewing engine and GPUI workspace item engineered
                   [Thread-Safe Document Handle (`document.rs`)]
                                         │
                                         ▼
-             [Async Background Worker Pool (`gpui::Task` / Threads)]
-                                        │
-                       (Zero UI-Thread Blocking Rasterization)
+                  [Serialized Native Pdfium Engine (`pdfium/`)]
                                         │
                                         ▼
                   [Memory-Budgeted LRU Cache (`cache.rs`)]
@@ -44,8 +42,8 @@ A native, high-performance PDF viewing engine and GPUI workspace item engineered
                 [Viewport State & Geometry Engine (`view.rs`)]
 ```
 
-1. **Zero UI-Thread Blocking (120 FPS Target)**: PDF parsing and rasterization never execute on GPUI's main render loop. Work is dispatched to background tasks that stream RGBA framebuffers into memory.
-2. **Viewport Virtualization & LRU Caching**: Pages are rasterized on-demand for the visible viewport plus a 1-page prefetch margin. Stale or passed-by in-flight render requests are cancelled during fast scrolls to prevent thread pool starvation.
+1. **Thread-Safe Serialization**: PDF parsing and rasterization are synchronized behind thread-safe handles, ready to be dispatched to background executor tasks in GPUI.
+2. **Viewport Virtualization & LRU Caching**: Pages are rasterized on-demand with memory-budgeted caching (`PageLruCache`) to prevent unbounded RAM usage.
 3. **Luminosity-Threshold Dark Mode**: Unlike simple blanket RGB inversion (which turns photos and charts into negative ghosts), `kkpdf-zed` implements selective tone mapping, remapping near-white canvas backgrounds to editor background tones and near-black text to theme light text, while preserving saturated color images.
 4. **Scroll & Zoom Preserving Live Reload**: Watches the underlying PDF on disk (via file system notifications) and reloads seamlessly without resetting the user's scroll percentage or zoom level.
 

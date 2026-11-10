@@ -250,7 +250,7 @@ pub fn extract_document_text(
     if let Some(idx) = page_index {
         let page = doc
             .pages()
-            .get(idx as u16)
+            .get(idx as i32)
             .context("Requested page index out of bounds")?;
         let text_page = page.text().context("Failed to load page text")?;
         Ok(text_page.all())

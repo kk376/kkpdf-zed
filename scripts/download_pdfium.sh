@@ -3,10 +3,10 @@ set -euo pipefail
 
 # scripts/download_pdfium.sh
 # Verified runtime downloader for Google Pdfium dynamic libraries.
-# Source: bblanchon/pdfium-binaries (Chromium 8125)
+# Source: bblanchon/pdfium-binaries (Chromium 8138)
 
-VERSION="8125"
-RELEASE_TAG="chromium%2F8125"
+VERSION="8138"
+RELEASE_TAG="chromium%2F8138"
 BASE_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/${RELEASE_TAG}"
 
 TARGET_DIR="${1:-${HOME}/.local/share/kkpdf-zed/lib}"
@@ -19,12 +19,12 @@ case "${OS}" in
         case "${ARCH}" in
             x86_64)
                 ARCHIVE="pdfium-linux-x64.tgz"
-                EXPECTED_SHA256="e1c3ce6e270cb5e0c20816b379ad9f2c1309972697c505f508de92bf5e7d6659"
+                EXPECTED_SHA256="d6b1e28950a0392590d79bbdbb7eb19686872b688f8a36f170acb19e41473113"
                 LIB_NAME="libpdfium.so"
                 ;;
             aarch64|arm64)
                 ARCHIVE="pdfium-linux-arm64.tgz"
-                EXPECTED_SHA256="8b8818f2ec57d1b213d952ca6d7f0ffeca9d0110487d0e20ad83ba918bc92efa"
+                EXPECTED_SHA256="c70b1ce4d13257f741af19e0aeee575890875995eb81370a65be942e601a1862"
                 LIB_NAME="libpdfium.so"
                 ;;
             *)
@@ -37,12 +37,12 @@ case "${OS}" in
         case "${ARCH}" in
             x86_64)
                 ARCHIVE="pdfium-mac-x64.tgz"
-                EXPECTED_SHA256="8a5193535b80c7215d8932f6647ae5097465b6dba2811602c21e120c2af112b0"
+                EXPECTED_SHA256="72662ac8eff7bf5381ef82ceebd0a0ad5bddb051b303981115114e6972fd201c"
                 LIB_NAME="libpdfium.dylib"
                 ;;
             arm64|aarch64)
                 ARCHIVE="pdfium-mac-arm64.tgz"
-                EXPECTED_SHA256="4939bd935ac83ddc09a3a4f038bc43a19cea1660316a3667f26cb07a070e139d"
+                EXPECTED_SHA256="21a1567b397b571f4f77f21ca91eac7b892774219c3c715a5127a20950ccb18b"
                 LIB_NAME="libpdfium.dylib"
                 ;;
             *)
@@ -55,7 +55,7 @@ case "${OS}" in
         case "${ARCH}" in
             x86_64|amd64)
                 ARCHIVE="pdfium-win-x64.tgz"
-                EXPECTED_SHA256="9a964261760cff52570aabf038ab346d3a5034dd8b30d0d5fe8861235d356b8b"
+                EXPECTED_SHA256="8d48973e3eb472dda0f5f2435e595ac043f9f2219dd71883392f549445afa8a5"
                 LIB_NAME="pdfium.dll"
                 ;;
             *)
@@ -83,7 +83,14 @@ echo "==> Downloading from ${BASE_URL}/${ARCHIVE}..."
 curl -sSL --fail "${BASE_URL}/${ARCHIVE}" -o "${ARCHIVE_PATH}"
 
 echo "==> Verifying SHA256 checksum..."
-ACTUAL_SHA256="$(sha256sum "${ARCHIVE_PATH}" | awk '{print $1}')"
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(sha256sum "${ARCHIVE_PATH}" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_SHA256="$(shasum -a 256 "${ARCHIVE_PATH}" | awk '{print $1}')"
+else
+    echo "ERROR: Neither sha256sum nor shasum is available for checksum verification" >&2
+    exit 1
+fi
 if [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256}" ]]; then
     echo "ERROR: SHA256 mismatch for ${ARCHIVE}!" >&2
     echo "  Expected: ${EXPECTED_SHA256}" >&2
