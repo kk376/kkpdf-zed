@@ -108,3 +108,144 @@ fn test_toolbar_synchronization_with_view_state() {
     assert!(toolbar_state.dark_mode);
     assert_eq!(toolbar_state.layout_mode, PageLayoutMode::Continuous);
 }
+
+#[test]
+fn test_fixed_point_tone_mapper_comprehensive_invariants() {
+    use kkpdf_zed::LuminosityToneMapper;
+
+    // Buffer layout:
+    // Pixel 0: White paper [255, 255, 255, 255] -> should be mapped to dark (~30)
+    // Pixel 1: Black ink   [0, 0, 0, 255]       -> should be mapped to light (~215)
+    // Pixel 2: Saturated Red [255, 0, 0, 255]   -> must remain untouched
+    // Pixel 3: Saturated Green [0, 255, 0, 255] -> must remain untouched
+    // Pixel 4: Saturated Blue [0, 0, 255, 255]  -> must remain untouched
+    // Pixel 5: Saturated Yellow [255, 255, 0, 255] -> must remain untouched
+    // Pixel 6: Fully Transparent [0, 0, 0, 0]   -> must remain untouched
+    // Pixel 7: Neutral Gray [128, 128, 128, 255] -> should be inverted
+    let mut buffer = vec![
+        255, 255, 255, 255,
+        0, 0, 0, 255,
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+        0, 0, 255, 255,
+        255, 255, 0, 255,
+        0, 0, 0, 0,
+        128, 128, 128, 255,
+    ];
+
+    LuminosityToneMapper::apply(&mut buffer, 0.18);
+
+    // Pixel 0: White paper -> 30
+    assert_eq!(buffer[0], 30);
+    assert_eq!(buffer[1], 30);
+    assert_eq!(buffer[2], 30);
+    assert_eq!(buffer[3], 255);
+
+    // Pixel 1: Black ink -> 215
+    assert_eq!(buffer[4], 215);
+    assert_eq!(buffer[5], 215);
+    assert_eq!(buffer[6], 215);
+    assert_eq!(buffer[7], 255);
+
+    // Pixel 2: Red preserved
+    assert_eq!(buffer[8], 255);
+    assert_eq!(buffer[9], 0);
+    assert_eq!(buffer[10], 0);
+
+    // Pixel 3: Green preserved
+    assert_eq!(buffer[12], 0);
+    assert_eq!(buffer[13], 255);
+    assert_eq!(buffer[14], 0);
+
+    // Pixel 4: Blue preserved
+    assert_eq!(buffer[16], 0);
+    assert_eq!(buffer[17], 0);
+    assert_eq!(buffer[18], 255);
+
+    // Pixel 5: Yellow preserved
+    assert_eq!(buffer[20], 255);
+    assert_eq!(buffer[21], 255);
+    assert_eq!(buffer[22], 0);
+
+    // Pixel 6: Transparent preserved
+    assert_eq!(buffer[24], 0);
+    assert_eq!(buffer[25], 0);
+    assert_eq!(buffer[26], 0);
+    assert_eq!(buffer[27], 0);
+
+    // Pixel 7: Neutral Gray inverted (215 - (128 * 185) / 255 ≈ 122)
+    assert!(buffer[28] >= 120 && buffer[28] <= 125);
+    assert_eq!(buffer[28], buffer[29]);
+    assert_eq!(buffer[29], buffer[30]);
+}
+
+#[test]
+fn test_spec_compliant_pdf_header_validation_invariants() {
+    use kkpdf_zed::pdfium::validate_pdf_bytes;
+
+    // Standard header
+    assert!(validate_pdf_bytes(b"%PDF-1.7\n").is_ok());
+
+    // UTF-8 Byte Order Mark (BOM) prefix
+    let bom_pdf = b"\xef\xbb\xbf%PDF-1.7\nstream";
+    assert!(validate_pdf_bytes(bom_pdf).is_ok());
+
+    // Leading whitespace and export comments
+    let commented_pdf = b"% Title: Document\n% Author: Zed\n\r\n\t  %PDF-2.0\n";
+    assert!(validate_pdf_bytes(commented_pdf).is_ok());
+
+    // Header within 1024-byte window
+    let mut padded_pdf = vec![b' '; 500];
+    padded_pdf.extend_from_slice(b"%PDF-1.4\ncontent");
+    assert!(validate_pdf_bytes(&padded_pdf).is_ok());
+
+    // Header past 1024-byte window (must be rejected)
+    let mut late_pdf = vec![b' '; 1030];
+    late_pdf.extend_from_slice(b"%PDF-1.4\ncontent");
+    assert!(validate_pdf_bytes(&late_pdf).is_err());
+
+    // Malformed / truncated
+    assert!(validate_pdf_bytes(b"").is_err());
+    assert!(validate_pdf_bytes(b"%PDF").is_err());
+    assert!(validate_pdf_bytes(b"PNG\r\n\x1a\n").is_err());
+}
+
+#[test]
+fn test_lru_cache_memory_accounting_and_stress_eviction() {
+    use kkpdf_zed::cache::{CacheKey, PageLruCache, RenderedPage};
+
+    // Cache with exactly 100 KB budget (minimum 1MB enforced by constructor)
+    let budget_bytes = 1024 * 1024; // 1 MB
+    let mut cache = PageLruCache::new(budget_bytes);
+
+    // Each page: 256x256x4 = 262,144 bytes (~256 KB)
+    // 4 pages = 1,048,576 bytes (exact 1 MB limit)
+    let page_width = 256u32;
+    let page_height = 256u32;
+    let byte_size = (page_width * page_height * 4) as usize;
+
+    for i in 0..10 {
+        let key = CacheKey::new(i, 1.0, false);
+        let page = RenderedPage::new(
+            i,
+            page_width,
+            page_height,
+            1.0,
+            false,
+            vec![200u8; byte_size],
+        );
+        cache.insert(key, page);
+        assert!(cache.memory_usage() <= budget_bytes);
+    }
+
+    // Because each page is 256 KB, only at most 4 pages can fit in 1 MB
+    assert!(cache.len() <= 4);
+    assert!(cache.memory_usage() <= budget_bytes);
+
+    // Oldest pages (0, 1, 2, 3, 4, 5) must have been evicted
+    assert!(cache.get(&CacheKey::new(0, 1.0, false)).is_none());
+    assert!(cache.get(&CacheKey::new(1, 1.0, false)).is_none());
+
+    // Most recent pages (e.g. 9) must be present
+    assert!(cache.get(&CacheKey::new(9, 1.0, false)).is_some());
+}
