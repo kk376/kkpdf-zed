@@ -123,14 +123,8 @@ fn test_fixed_point_tone_mapper_comprehensive_invariants() {
     // Pixel 6: Fully Transparent [0, 0, 0, 0]   -> must remain untouched
     // Pixel 7: Neutral Gray [128, 128, 128, 255] -> should be inverted
     let mut buffer = vec![
-        255, 255, 255, 255,
-        0, 0, 0, 255,
-        255, 0, 0, 255,
-        0, 255, 0, 255,
-        0, 0, 255, 255,
-        255, 255, 0, 255,
-        0, 0, 0, 0,
-        128, 128, 128, 255,
+        255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255,
+        0, 255, 0, 0, 0, 0, 128, 128, 128, 255,
     ];
 
     LuminosityToneMapper::apply(&mut buffer, 0.18);
