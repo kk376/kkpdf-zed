@@ -57,7 +57,7 @@ pub fn render_single_page(
 
     let page = doc
         .pages()
-        .get(page_index as u16)
+        .get(page_index as i32)
         .context("Requested page index out of bounds")?;
 
     let target_width = (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
@@ -77,7 +77,11 @@ pub fn render_single_page(
         .render_with_config(&render_config)
         .context("Pdfium page render call failed")?;
 
-    let mut rgba_buffer = bitmap.as_image().to_rgba8().into_raw();
+    let mut rgba_buffer = bitmap
+        .as_image()
+        .context("Pdfium image conversion failed")?
+        .to_rgba8()
+        .into_raw();
 
     if options.dark_mode {
         LuminosityToneMapper::apply(&mut rgba_buffer, options.saturation_threshold);
@@ -130,7 +134,7 @@ pub fn render_document_range(
     for idx in start_page..end_page {
         let page = doc
             .pages()
-            .get(idx as u16)
+            .get(idx as i32)
             .context("Requested page index out of bounds")?;
 
         let target_width = (page.width().value * (options.target_dpi / 72.0) * options.zoom_factor)
@@ -151,7 +155,11 @@ pub fn render_document_range(
             .render_with_config(&render_config)
             .with_context(|| format!("Pdfium failed to render page {}", idx))?;
 
-        let mut rgba_buffer = bitmap.as_image().to_rgba8().into_raw();
+        let mut rgba_buffer = bitmap
+            .as_image()
+            .context("Pdfium image conversion failed")?
+            .to_rgba8()
+            .into_raw();
 
         if options.dark_mode {
             LuminosityToneMapper::apply(&mut rgba_buffer, options.saturation_threshold);
@@ -205,7 +213,11 @@ pub fn render_and_extract_document(
             .render_with_config(&render_config)
             .with_context(|| format!("Pdfium failed to render page {}", idx))?;
 
-        let mut rgba_buffer = bitmap.as_image().to_rgba8().into_raw();
+        let mut rgba_buffer = bitmap
+            .as_image()
+            .context("Pdfium image conversion failed")?
+            .to_rgba8()
+            .into_raw();
 
         if options.dark_mode {
             LuminosityToneMapper::apply(&mut rgba_buffer, options.saturation_threshold);

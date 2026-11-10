@@ -1,7 +1,7 @@
-//! Async PDF page rasterization engine and luminosity tone-mapper.
+//! PDF rasterization tone-mapping and rendering configuration.
 //!
-//! Converts PDF vector pages into RGBA framebuffers on background worker threads,
-//! with optional luminance-threshold dark mode color mapping.
+//! Provides ITU-R BT.709 luminosity-threshold dark mode color mapping
+//! and synthetic fallback page rendering for testing and headless environments.
 
 use crate::cache::RenderedPage;
 use crate::document::PageDimensions;
@@ -41,40 +41,51 @@ impl Default for RasterizerOptions {
 ///    - Inverts luminance to match dark theme surface background (`#1E1E2E`) and light text (`#CDD6F4`).
 /// 4. If $S \ge \text{threshold}$ (colored graphics, charts, photos):
 ///    - Leaves pixel RGB channels untouched!
+///
+/// Precomputed 256-entry lookup table for linear dark theme luminance remapping:
+/// 255 (white paper) -> 30 (dark surface), 0 (black ink) -> 215 (light text).
+const LUMINANCE_LUT: [u8; 256] = {
+    let mut table = [0u8; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        table[i] = (215 - (i * 185).div_ceil(255)) as u8;
+        i += 1;
+    }
+    table
+};
+
 pub struct LuminosityToneMapper;
 
 impl LuminosityToneMapper {
     /// Applies dark mode tone mapping in-place on an RGBA8 buffer.
     pub fn apply(rgba_buffer: &mut [u8], saturation_threshold: f32) {
-        // Chunk by 4 bytes: [R, G, B, A]
-        for pixel in rgba_buffer.chunks_exact_mut(4) {
-            let r = pixel[0] as f32;
-            let g = pixel[1] as f32;
-            let b = pixel[2] as f32;
-            let a = pixel[3];
+        let thresh_fixed = (saturation_threshold.clamp(0.0, 1.0) * 65536.0 + 0.5) as u32;
 
-            // If fully transparent, skip
+        for pixel in rgba_buffer.chunks_exact_mut(4) {
+            let a = pixel[3];
             if a == 0 {
                 continue;
             }
 
+            let r = pixel[0];
+            let g = pixel[1];
+            let b = pixel[2];
+
             let max_c = r.max(g).max(b);
             let min_c = r.min(g).min(b);
 
-            let saturation = if max_c > 0.0 {
-                (max_c - min_c) / max_c
+            let diff = (max_c - min_c) as u32;
+            let is_desaturated = if diff == 0 {
+                true
             } else {
-                0.0
+                (diff << 16) < thresh_fixed * (max_c as u32)
             };
 
-            // Only recolor desaturated / neutral pixels (paper backgrounds and text)
-            if saturation < saturation_threshold {
-                // ITU-R BT.709 standard relative luminance
-                let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-                // Remap luminance: 255 (pure white) -> 30 (dark background), 0 (pure black) -> 215 (light text)
-                // Linear transformation: target_lum = 215.0 - (lum / 255.0) * 185.0
-                let target_lum = (215.0 - (lum / 255.0) * 185.0).clamp(0.0, 255.0) as u8;
+            if is_desaturated {
+                // Fixed-point ITU-R BT.709 relative luminance (13933 + 46871 + 4732 = 65536)
+                let lum = ((13933 * r as u32 + 46871 * g as u32 + 4732 * b as u32 + 32768) >> 16)
+                    .min(255) as usize;
+                let target_lum = LUMINANCE_LUT[lum];
 
                 pixel[0] = target_lum;
                 pixel[1] = target_lum;
@@ -97,27 +108,26 @@ impl PageRasterizer {
         let (width, height) = dimensions.to_pixel_size(options.zoom_factor, options.target_dpi);
         let total_bytes = (width as usize) * (height as usize) * 4;
 
-        // Create standard white paper background with an inner border
         let mut buffer = vec![255u8; total_bytes];
 
-        // Draw a simulated dark page header box
+        // Draw header bar
         for y in 0..height.min(30) {
             for x in 0..width {
                 let idx = ((y * width + x) * 4) as usize;
-                buffer[idx] = 20; // R
-                buffer[idx + 1] = 20; // G
-                buffer[idx + 2] = 20; // B
-                buffer[idx + 3] = 255; // A
+                buffer[idx] = 20;
+                buffer[idx + 1] = 20;
+                buffer[idx + 2] = 20;
+                buffer[idx + 3] = 255;
             }
         }
 
-        // Draw a vibrant red accent icon box (tests saturation preservation)
+        // Draw saturated red accent box to verify saturation preservation
         for y in 40..height.min(80) {
             for x in 40..width.min(80) {
                 let idx = ((y * width + x) * 4) as usize;
-                buffer[idx] = 235; // R (Vibrant Red)
-                buffer[idx + 1] = 30; // G
-                buffer[idx + 2] = 30; // B
+                buffer[idx] = 235;
+                buffer[idx + 1] = 30;
+                buffer[idx + 2] = 30;
                 buffer[idx + 3] = 255;
             }
         }

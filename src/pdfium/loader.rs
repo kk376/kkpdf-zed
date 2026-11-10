@@ -60,14 +60,26 @@ pub fn discover_and_bind_pdfium() -> Option<Pdfium> {
         }
     }
 
-    // 5. User-level standard data directories (~/.local/share/kkpdf-zed/lib and ~/.local/lib)
-    if let Ok(home_dir) = std::env::var("HOME") {
+    // 5. User-level standard data directories (~/.local/share/kkpdf-zed/lib, ~/.local/lib, %LOCALAPPDATA%)
+    if let Ok(home_dir) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         if !home_dir.trim().is_empty() {
             let home = Path::new(&home_dir);
-            for filename in &["libpdfium.so", "libpdfium.dylib"] {
+            for filename in &["libpdfium.so", "libpdfium.dylib", "pdfium.dll"] {
                 candidate_paths.push(home.join(".local/share/kkpdf-zed/lib").join(filename));
                 candidate_paths.push(home.join(".local/lib").join(filename));
             }
+        }
+    }
+    if let Ok(appdata) = std::env::var("LOCALAPPDATA") {
+        if !appdata.trim().is_empty() {
+            let appdata_path = Path::new(&appdata);
+            candidate_paths.push(
+                appdata_path
+                    .join("kkpdf-zed")
+                    .join("lib")
+                    .join("pdfium.dll"),
+            );
+            candidate_paths.push(appdata_path.join("kkpdf-zed").join("pdfium.dll"));
         }
     }
 

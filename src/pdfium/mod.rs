@@ -29,25 +29,26 @@ pub use text::PdfTextSegment;
 /// Internal wrapper granting thread-safe synchronization to Pdfium handle.
 pub(crate) struct SerializedPdfium(pub(crate) Option<Pdfium>);
 
-// SAFETY: All calls to the internal Pdfium C++ FFI handle are strictly guarded
-// by a Mutual Exclusion (Mutex) lock, guaranteeing serialized single-thread
-// execution across asynchronous worker threads without race conditions.
+// SAFETY: All Pdfium FFI operations are serialized behind a parking_lot Mutex.
 unsafe impl Send for SerializedPdfium {}
 
-// SAFETY: All calls to the internal Pdfium C++ FFI handle are strictly guarded
-// by a Mutual Exclusion (Mutex) lock, guaranteeing synchronized multi-thread access.
+// SAFETY: All Pdfium FFI operations are serialized behind a parking_lot Mutex.
 unsafe impl Sync for SerializedPdfium {}
 
 static GLOBAL_PDFIUM: OnceLock<Arc<Mutex<SerializedPdfium>>> = OnceLock::new();
 
-/// Validates that the input byte slice starts with the standard PDF magic header (`%PDF-`).
-/// Protects against sending arbitrary or malformed data into native C++ parser entry points.
+/// Validates that the input byte slice contains the standard PDF magic header (`%PDF-`)
+/// within the first 1024 bytes per ISO 32000-1 §7.5.2.
+/// Protects against sending arbitrary or malformed data into native C++ parser entry points
+/// while allowing standard leading UTF-8 BOM, comments, or newlines.
 #[inline]
 pub fn validate_pdf_bytes(bytes: &[u8]) -> Result<()> {
-    if bytes.len() < 5 || &bytes[0..5] != b"%PDF-" {
-        anyhow::bail!("Invalid PDF header magic bytes: expected %PDF-");
+    let window_len = 1024.min(bytes.len());
+    if bytes[..window_len].windows(5).any(|w| w == b"%PDF-") {
+        Ok(())
+    } else {
+        anyhow::bail!("Invalid PDF: missing '%PDF-' header within first 1024 bytes");
     }
-    Ok(())
 }
 
 /// Detailed page metadata, text content, hyperlinks, and text segment bounding boxes.
@@ -462,6 +463,14 @@ mod tests {
 
     #[test]
     fn test_magic_bytes_validation_rejection() {
+        assert!(validate_pdf_bytes(b"hello world").is_err());
+        assert!(validate_pdf_bytes(b"").is_err());
+        assert!(validate_pdf_bytes(b"%PDF").is_err());
+        assert!(validate_pdf_bytes(b"%PDF-1.7").is_ok());
+        // Leading UTF-8 BOM and comments allowed per ISO 32000-1 §7.5.2
+        assert!(validate_pdf_bytes(b"\xef\xbb\xbf%PDF-1.7").is_ok());
+        assert!(validate_pdf_bytes(b"\n\n%PDF-1.4\n%comment").is_ok());
+
         let engine = PdfiumEngine::mock();
 
         let invalid_pdf = b"NOT_A_VALID_PDF_BYTES";
