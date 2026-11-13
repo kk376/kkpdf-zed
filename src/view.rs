@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::cache::{CacheKey, PageLruCache, RenderedPage, DEFAULT_MEMORY_BUDGET_BYTES};
+use crate::cache::{CacheKey, DEFAULT_MEMORY_BUDGET_BYTES, PageLruCache, RenderedPage};
 use crate::document::{PageDimensions, PdfDocument};
 use crate::pdfium::PdfiumEngine;
 use crate::rasterizer::RasterizerOptions;
@@ -128,12 +128,12 @@ impl PdfView {
 
     /// Restores a captured viewport state.
     pub fn restore_state_snapshot(&mut self, snapshot: ViewerStateSnapshot) {
-        if let Some(ref doc) = self.document {
-            if !doc.is_empty() {
-                self.current_page = snapshot
-                    .current_page
-                    .min(doc.total_pages().saturating_sub(1));
-            }
+        if let Some(ref doc) = self.document
+            && !doc.is_empty()
+        {
+            self.current_page = snapshot
+                .current_page
+                .min(doc.total_pages().saturating_sub(1));
         }
         self.zoom_level = snapshot.zoom_level.clamp(MIN_ZOOM, MAX_ZOOM);
         self.pan_offset = (snapshot.pan_x, snapshot.pan_y);
@@ -215,29 +215,27 @@ impl PdfView {
 
     /// Adjusts zoom to fit the current page width.
     pub fn fit_to_width(&mut self) {
-        if let Some((container_w, _)) = self.container_size {
-            if let Some(dim) = self
+        if let Some((container_w, _)) = self.container_size
+            && let Some(dim) = self
                 .document
                 .as_ref()
                 .and_then(|d| d.page_size(self.current_page))
-            {
-                self.zoom_level = self.compute_fit_to_width_zoom(container_w, dim.width);
-                self.pan_offset = (0.0, 0.0);
-            }
+        {
+            self.zoom_level = self.compute_fit_to_width_zoom(container_w, dim.width);
+            self.pan_offset = (0.0, 0.0);
         }
     }
 
     /// Adjusts zoom to fit the current entire page in view.
     pub fn fit_to_page(&mut self) {
-        if let Some((container_w, container_h)) = self.container_size {
-            if let Some(dim) = self
+        if let Some((container_w, container_h)) = self.container_size
+            && let Some(dim) = self
                 .document
                 .as_ref()
                 .and_then(|d| d.page_size(self.current_page))
-            {
-                self.zoom_level = self.compute_fit_to_page_zoom(container_w, container_h, dim);
-                self.pan_offset = (0.0, 0.0);
-            }
+        {
+            self.zoom_level = self.compute_fit_to_page_zoom(container_w, container_h, dim);
+            self.pan_offset = (0.0, 0.0);
         }
     }
 
@@ -251,28 +249,28 @@ impl PdfView {
 
         self.zoom_level = clamped;
 
-        if let Some((center_x, center_y)) = focal_center {
-            if let Some((cont_w, cont_h)) = self.container_size {
-                let rel_x = center_x - cont_w / 2.0;
-                let rel_y = center_y - cont_h / 2.0;
+        if let Some((center_x, center_y)) = focal_center
+            && let Some((cont_w, cont_h)) = self.container_size
+        {
+            let rel_x = center_x - cont_w / 2.0;
+            let rel_y = center_y - cont_h / 2.0;
 
-                let mouse_offset_x = rel_x - self.pan_offset.0;
-                let mouse_offset_y = rel_y - self.pan_offset.1;
+            let mouse_offset_x = rel_x - self.pan_offset.0;
+            let mouse_offset_y = rel_y - self.pan_offset.1;
 
-                let ratio = self.zoom_level / old_zoom;
-                self.pan_offset.0 += mouse_offset_x * (1.0 - ratio);
-                self.pan_offset.1 += mouse_offset_y * (1.0 - ratio);
-            }
+            let ratio = self.zoom_level / old_zoom;
+            self.pan_offset.0 += mouse_offset_x * (1.0 - ratio);
+            self.pan_offset.1 += mouse_offset_y * (1.0 - ratio);
         }
     }
 
     /// Navigates to the next page.
     pub fn next_page(&mut self) -> bool {
-        if let Some(ref doc) = self.document {
-            if self.current_page + 1 < doc.total_pages() {
-                self.current_page += 1;
-                return true;
-            }
+        if let Some(ref doc) = self.document
+            && self.current_page + 1 < doc.total_pages()
+        {
+            self.current_page += 1;
+            return true;
         }
         false
     }
@@ -288,11 +286,11 @@ impl PdfView {
 
     /// Jumps directly to target page index (0-indexed).
     pub fn go_to_page(&mut self, page_index: usize) -> bool {
-        if let Some(ref doc) = self.document {
-            if page_index < doc.total_pages() {
-                self.current_page = page_index;
-                return true;
-            }
+        if let Some(ref doc) = self.document
+            && page_index < doc.total_pages()
+        {
+            self.current_page = page_index;
+            return true;
         }
         false
     }

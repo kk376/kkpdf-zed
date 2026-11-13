@@ -9,8 +9,8 @@
 //! 3. Active page index and selection states.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Snapshot of viewer position to restore seamlessly across document reloads.
@@ -85,12 +85,12 @@ impl PdfReloadDebouncer {
             return false;
         }
 
-        if let Some(last_mod) = self.last_modified {
-            if now.duration_since(last_mod) >= self.debounce_duration {
-                // Debounce timer elapsed, file has settled
-                self.last_modified = None;
-                return true;
-            }
+        if let Some(last_mod) = self.last_modified
+            && now.duration_since(last_mod) >= self.debounce_duration
+        {
+            // Debounce timer elapsed, file has settled
+            self.last_modified = None;
+            return true;
         }
 
         false

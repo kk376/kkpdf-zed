@@ -19,7 +19,7 @@ pub mod ui;
 pub mod view;
 pub mod watcher;
 
-pub use cache::{CacheKey, PageLruCache, RenderedPage, DEFAULT_MEMORY_BUDGET_BYTES};
+pub use cache::{CacheKey, DEFAULT_MEMORY_BUDGET_BYTES, PageLruCache, RenderedPage};
 pub use document::{PageDimensions, PdfDocument};
 pub use pdfium::{
     PdfDocumentDetails, PdfLinkAnnotation, PdfPageDetails, PdfTextSegment, PdfiumEngine,
@@ -27,5 +27,5 @@ pub use pdfium::{
 pub use rasterizer::{LuminosityToneMapper, PageRasterizer, RasterizerOptions};
 pub use settings::{DefaultZoomPolicy, PageLayoutMode, PdfViewerSettings};
 pub use ui::{PdfToolbarAction, PdfToolbarState};
-pub use view::{PdfView, MAX_ZOOM, MIN_ZOOM, PAGE_SPACING_PX, ZOOM_STEP};
+pub use view::{MAX_ZOOM, MIN_ZOOM, PAGE_SPACING_PX, PdfView, ZOOM_STEP};
 pub use watcher::{PdfReloadDebouncer, ViewerStateSnapshot};
