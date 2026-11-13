@@ -72,23 +72,41 @@ A native, high-performance PDF viewing engine and GPUI workspace item engineered
 
 ```
 kkpdf-zed/
-├── Cargo.toml               # Native crate manifest
-├── extension.toml           # Documentation stub
-├── README.md                # Architecture & operational guide
+├── Cargo.toml               # Native crate manifest (Rust Edition 2024, MSRV 1.88+)
+├── rust-toolchain.toml      # Pinned stable toolchain with clippy & rustfmt
+├── extension.toml           # Extension metadata stub
+├── README.md                # Architecture, API & operational guide
+├── SECURITY.md              # Zero-trust defensive threat model & security invariants
+├── scripts/
+│   └── download_pdfium.sh   # Automated dynamic library fetcher for native builds
+├── examples/
+│   └── viewer.rs            # Standalone interactive engine runner & benchmark harness
+├── tests/
+│   └── integration_tests.rs # Invariant test suite (tone mapping, header validation, LRU)
 └── src/
-    ├── lib.rs               # Crate entrypoint & exports
-    ├── document.rs          # Thread-safe PdfDocument handle
-    ├── rasterizer.rs        # Async background rendering & luminosity tone mapping
-    ├── cache.rs             # Memory-budgeted LRU cache with O(1) eviction
-    ├── watcher.rs           # Live-reload file watcher & scroll state
+    ├── lib.rs               # Crate entrypoint & re-exports
+    ├── document.rs          # Thread-safe PdfDocument handle & header validation
+    ├── rasterizer.rs        # Tone mapping & multi-scale background rasterization
+    ├── cache.rs             # Memory-budgeted LRU cache with byte-level eviction
+    ├── settings.rs          # Viewport policies, layout modes & zoom configuration
     ├── view.rs              # Viewport state machine, navigation & pan/zoom geometry
-    └── ui/
-        └── toolbar.rs       # Zoom, fit-width & page jump controls
+    ├── watcher.rs           # Live-reload debouncer & scroll/zoom state preservation
+    ├── pdfium/              # Google Pdfium engine integration
+    │   ├── mod.rs           # Engine abstraction, coordination & thread synchronization
+    │   ├── loader.rs        # Zero-trust dynamic library discovery & mock fallback
+    │   ├── render.rs        # Page & composite document rasterization routines
+    │   ├── text.rs          # Text extraction & bounding box segmentation
+    │   └── links.rs         # Hyperlink & URI annotation extraction
+    └── ui/                  # GPUI user interface surfaces
+        ├── mod.rs           # UI module exports
+        └── toolbar.rs       # Zoom, fit-width/page & navigation controls
 ```
 
 ---
 
 ## 5. Local Development & Testing
+
+**Toolchain Requirement**: Rust Edition 2024 (`rust-version = "1.88.0"` or newer).
 
 Run unit and integration tests across the caching and rasterization engines:
 
@@ -96,9 +114,12 @@ Run unit and integration tests across the caching and rasterization engines:
 # Run all unit and integration tests (mock fallback enabled when native library is absent)
 cargo test
 
-# To run tests against native Google Pdfium dynamic libraries:
+# Run tests against native Google Pdfium dynamic libraries:
 bash scripts/download_pdfium.sh "${PWD}/lib"
 PDFIUM_LIB_DIR="${PWD}/lib" cargo test
+
+# Run standalone benchmark and interactive rendering runner:
+cargo run --example viewer
 ```
 
 ---
