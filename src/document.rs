@@ -115,15 +115,15 @@ impl PdfDocument {
 
     /// Document title if available in metadata, or falls back to filename.
     pub fn display_title(&self) -> String {
-        if let Some(ref title) = self.title {
-            if !title.trim().is_empty() {
-                return title.clone();
-            }
+        if let Some(ref title) = self.title
+            && !title.trim().is_empty()
+        {
+            return title.clone();
         }
-        if let Some(ref path) = self.path {
-            if let Some(file_name) = path.file_name() {
-                return file_name.to_string_lossy().to_string();
-            }
+        if let Some(ref path) = self.path
+            && let Some(file_name) = path.file_name()
+        {
+            return file_name.to_string_lossy().to_string();
         }
         "Untitled Document.pdf".to_string()
     }

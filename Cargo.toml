@@ -1,8 +1,8 @@
 [package]
 name = "kkpdf-zed"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.80.0"
+edition = "2024"
+rust-version = "1.88.0"
 authors = ["Kushagra Kumar <kkushagra86@gmail.com>"]
 license = "Apache-2.0 OR GPL-3.0-or-later"
 description = "High-performance native PDF viewing engine and GPUI workspace item for Zed Editor"

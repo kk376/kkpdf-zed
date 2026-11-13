@@ -7,8 +7,8 @@ use crate::cache::RenderedPage;
 use crate::document::{PageDimensions, PdfDocument};
 use crate::rasterizer::{LuminosityToneMapper, PageRasterizer, RasterizerOptions};
 
-use super::links::{extract_page_links, PdfLinkAnnotation};
-use super::text::{extract_page_text_and_segments, PdfTextSegment};
+use super::links::{PdfLinkAnnotation, extract_page_links};
+use super::text::{PdfTextSegment, extract_page_text_and_segments};
 
 /// Maximum dimension (width or height) allowed when rasterizing a PDF page,
 /// preventing out-of-memory denial of service attacks from malicious documents.
@@ -362,7 +362,7 @@ fn composite_pages(
     };
 
     let mut composite = vec![0u8; total_bytes];
-    for chunk in composite.chunks_exact_mut(4) {
+    for chunk in composite.as_chunks_mut::<4>().0 {
         chunk.copy_from_slice(&bg_color);
     }
 

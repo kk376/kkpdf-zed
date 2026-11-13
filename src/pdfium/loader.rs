@@ -13,14 +13,14 @@ pub fn discover_and_bind_pdfium() -> Option<Pdfium> {
     // 1. Explicit environment variable PDFIUM_LIB_PATH (points directly to library file)
     if let Ok(env_path_str) = std::env::var("PDFIUM_LIB_PATH") {
         let env_path = Path::new(&env_path_str);
-        if env_path.is_file() {
-            if let Ok(bindings) = Pdfium::bind_to_library(env_path) {
-                log::info!(
-                    "Bound to Pdfium via PDFIUM_LIB_PATH: {}",
-                    env_path.display()
-                );
-                return Some(Pdfium::new(bindings));
-            }
+        if env_path.is_file()
+            && let Ok(bindings) = Pdfium::bind_to_library(env_path)
+        {
+            log::info!(
+                "Bound to Pdfium via PDFIUM_LIB_PATH: {}",
+                env_path.display()
+            );
+            return Some(Pdfium::new(bindings));
         }
     }
 
@@ -30,14 +30,14 @@ pub fn discover_and_bind_pdfium() -> Option<Pdfium> {
         if env_dir.is_dir() {
             for filename in &["libpdfium.so", "libpdfium.dylib", "pdfium.dll"] {
                 let candidate = env_dir.join(filename);
-                if candidate.is_file() {
-                    if let Ok(bindings) = Pdfium::bind_to_library(&candidate) {
-                        log::info!(
-                            "Bound to Pdfium via PDFIUM_LIB_DIR: {}",
-                            candidate.display()
-                        );
-                        return Some(Pdfium::new(bindings));
-                    }
+                if candidate.is_file()
+                    && let Ok(bindings) = Pdfium::bind_to_library(&candidate)
+                {
+                    log::info!(
+                        "Bound to Pdfium via PDFIUM_LIB_DIR: {}",
+                        candidate.display()
+                    );
+                    return Some(Pdfium::new(bindings));
                 }
             }
         }
@@ -51,36 +51,36 @@ pub fn discover_and_bind_pdfium() -> Option<Pdfium> {
 
     // 4. Secure executable-relative paths via std::env::current_exe()
     let mut candidate_paths: Vec<PathBuf> = Vec::new();
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(exe_dir) = current_exe.parent() {
-            for filename in &["libpdfium.so", "libpdfium.dylib", "pdfium.dll"] {
-                candidate_paths.push(exe_dir.join(filename));
-                candidate_paths.push(exe_dir.join("lib").join(filename));
-            }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(exe_dir) = current_exe.parent()
+    {
+        for filename in &["libpdfium.so", "libpdfium.dylib", "pdfium.dll"] {
+            candidate_paths.push(exe_dir.join(filename));
+            candidate_paths.push(exe_dir.join("lib").join(filename));
         }
     }
 
     // 5. User-level standard data directories (~/.local/share/kkpdf-zed/lib, ~/.local/lib, %LOCALAPPDATA%)
-    if let Ok(home_dir) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        if !home_dir.trim().is_empty() {
-            let home = Path::new(&home_dir);
-            for filename in &["libpdfium.so", "libpdfium.dylib", "pdfium.dll"] {
-                candidate_paths.push(home.join(".local/share/kkpdf-zed/lib").join(filename));
-                candidate_paths.push(home.join(".local/lib").join(filename));
-            }
+    if let Ok(home_dir) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))
+        && !home_dir.trim().is_empty()
+    {
+        let home = Path::new(&home_dir);
+        for filename in &["libpdfium.so", "libpdfium.dylib", "pdfium.dll"] {
+            candidate_paths.push(home.join(".local/share/kkpdf-zed/lib").join(filename));
+            candidate_paths.push(home.join(".local/lib").join(filename));
         }
     }
-    if let Ok(appdata) = std::env::var("LOCALAPPDATA") {
-        if !appdata.trim().is_empty() {
-            let appdata_path = Path::new(&appdata);
-            candidate_paths.push(
-                appdata_path
-                    .join("kkpdf-zed")
-                    .join("lib")
-                    .join("pdfium.dll"),
-            );
-            candidate_paths.push(appdata_path.join("kkpdf-zed").join("pdfium.dll"));
-        }
+    if let Ok(appdata) = std::env::var("LOCALAPPDATA")
+        && !appdata.trim().is_empty()
+    {
+        let appdata_path = Path::new(&appdata);
+        candidate_paths.push(
+            appdata_path
+                .join("kkpdf-zed")
+                .join("lib")
+                .join("pdfium.dll"),
+        );
+        candidate_paths.push(appdata_path.join("kkpdf-zed").join("pdfium.dll"));
     }
 
     // 6. Well-known operating system shared library locations
@@ -104,11 +104,11 @@ pub fn discover_and_bind_pdfium() -> Option<Pdfium> {
 
     // Test discovered candidate paths
     for path in &candidate_paths {
-        if path.is_file() {
-            if let Ok(bindings) = Pdfium::bind_to_library(path) {
-                log::info!("Successfully bound to Pdfium at {}", path.display());
-                return Some(Pdfium::new(bindings));
-            }
+        if path.is_file()
+            && let Ok(bindings) = Pdfium::bind_to_library(path)
+        {
+            log::info!("Successfully bound to Pdfium at {}", path.display());
+            return Some(Pdfium::new(bindings));
         }
     }
 

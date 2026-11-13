@@ -61,7 +61,7 @@ impl LuminosityToneMapper {
     pub fn apply(rgba_buffer: &mut [u8], saturation_threshold: f32) {
         let thresh_fixed = (saturation_threshold.clamp(0.0, 1.0) * 65536.0 + 0.5) as u32;
 
-        for pixel in rgba_buffer.chunks_exact_mut(4) {
+        for pixel in rgba_buffer.as_chunks_mut::<4>().0 {
             let a = pixel[3];
             if a == 0 {
                 continue;
