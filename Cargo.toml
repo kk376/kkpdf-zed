@@ -8,6 +8,7 @@ license = "Apache-2.0 OR GPL-3.0-or-later"
 description = "High-performance native PDF viewing engine and GPUI workspace item for Zed Editor"
 repository = "https://github.com/kk376/kkpdf-zed"
 readme = "README.md"
+exclude = [".github/"]
 
 [dependencies]
 anyhow = "1.0"
@@ -18,7 +19,7 @@ pdfium-render = { version = "0.9", features = ["image_025"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [dev-dependencies]
-tempfile = "3.10"
+tempfile = "3.27"
 serde_json = "1.0"
 
 [lints.rust]
@@ -29,3 +30,10 @@ dbg_macro = "deny"
 todo = "deny"
 redundant_clone = "deny"
 undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

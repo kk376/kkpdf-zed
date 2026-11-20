@@ -74,6 +74,27 @@ jobs:
           PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
         run: cargo run --example viewer
 
+  msrv:
+    name: MSRV Verification (1.88.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.88.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88.0"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: msrv-cargo
+
+      - name: Verify MSRV check
+        run: cargo check --all-targets --all-features
+
   security-audit:
     name: Security Vulnerability Audit
     runs-on: ubuntu-latest
