@@ -98,9 +98,14 @@ jobs:
   security-audit:
     name: Security Vulnerability Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
-      - name: Install cargo-audit
+      - name: Install cargo-audit prebuilt binary
+        uses: taiki-e/install-action@cargo-audit
+      - name: Run cargo audit
         uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
