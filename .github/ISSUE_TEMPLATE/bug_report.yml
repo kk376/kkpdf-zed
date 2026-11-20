@@ -1,0 +1,98 @@
+name: Bug Report
+description: File a bug report to help identify and fix an issue in kkpdf-zed
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill in the details below to help us diagnose and resolve the issue.
+  - type: input
+    id: version
+    attributes:
+      label: kkpdf-zed Version / Commit
+      description: The version or git commit SHA of kkpdf-zed you are using.
+      placeholder: v0.1.0 or commit 9f4698e
+    validations:
+      required: true
+  - type: input
+    id: zed_version
+    attributes:
+      label: Zed Editor Version
+      description: The version of Zed you are running (run `zed --version`).
+      placeholder: Zed 0.160.0 (or custom build)
+    validations:
+      required: false
+  - type: input
+    id: os_info
+    attributes:
+      label: Operating System & Architecture
+      description: Your operating system, kernel, and hardware architecture.
+      placeholder: Fedora 41 (x86_64), macOS Sonoma 14.5 (Apple Silicon), Windows 11
+    validations:
+      required: true
+  - type: input
+    id: display_env
+    attributes:
+      label: Display Server & Graphics
+      description: Your display server (Wayland / X11 / macOS Metal / DirectX) and GPU model.
+      placeholder: Wayland, AMD Radeon 780M
+    validations:
+      required: false
+  - type: dropdown
+    id: pdfium_backend
+    attributes:
+      label: Pdfium Backend Source
+      options:
+        - Downloaded via scripts/download_pdfium.sh
+        - System installed shared library (/usr/lib/libpdfium.so)
+        - Mock / Synthetic fallback engine
+        - Other / Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Clear, numbered steps to trigger the bug.
+      placeholder: |
+        1. Open a multi-page PDF document...
+        2. Zoom in beyond 200%...
+        3. Scroll rapidly down to page 5...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed Behavior
+      description: What happened? Include relevant terminal output, panic backtraces, or visual artifacts.
+      placeholder: Describe the observed issue or paste error logs...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to occur instead.
+      placeholder: Describe expected behavior...
+    validations:
+      required: true
+  - type: textarea
+    id: document_details
+    attributes:
+      label: Document Characteristics (Optional)
+      description: If possible, describe the document that caused the issue (page count, source such as LaTeX/Typst/Chromium, or attach a non-confidential minimal sample).
+      placeholder: 15-page document compiled via typst watch...
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked that this reproduces with the latest commit on main.
+          required: true
+        - label: I searched open and closed issues and confirmed this is not a duplicate.
+          required: true
+        - label: I confirmed that any attached PDF samples contain no proprietary or sensitive information.
+          required: true

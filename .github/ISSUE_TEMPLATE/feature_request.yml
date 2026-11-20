@@ -1,0 +1,59 @@
+name: Feature Request
+description: Propose a new capability, architectural improvement, or UI control for kkpdf-zed
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement to kkpdf-zed. Please describe your feature proposal below.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      options:
+        - GPUI Interface & Controls (toolbar, page spread, zoom gestures)
+        - Rendering & Tone Mapping (dark mode adjustments, DPI scaling, contrast)
+        - Performance & Caching (LRU eviction policies, background pre-rasterization)
+        - File Watching & Workflow Synchronization (LaTeX/Typst debouncing, SyncTeX)
+        - Platform Portability & Toolchain
+        - Other Improvement
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Problem or Use Case
+      description: What challenge are you encountering, or what workflow would this feature enable?
+      placeholder: A clear description of the motivation and use case.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work in kkpdf-zed? Reference relevant components (`src/rasterizer.rs`, `src/view.rs`, `src/cache.rs`) if applicable.
+      placeholder: Describe the technical approach or user experience.
+    validations:
+      required: true
+  - type: textarea
+    id: mockup
+    attributes:
+      label: UI Mockup or Interaction Flow (Optional)
+      description: Provide an ASCII layout diagram or describe the keybindings/gestures if applicable.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered (Optional)
+      description: Any alternative implementations or approaches you considered.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched open and closed issues and confirmed this feature has not been previously requested.
+          required: true
