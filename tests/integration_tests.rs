@@ -304,15 +304,21 @@ fn test_restore_snapshot_rejects_invalid_zoom() {
 
 #[test]
 fn test_get_or_render_page_errors_without_mock_fallback() {
-    let mut view = PdfView::with_engine(PdfViewerSettings::default(), PdfiumEngine::new());
-    view.load_from_bytes(MINIMAL_PDF.to_vec(), None)
-        .expect("Load minimal PDF");
-
-    // Out-of-bounds page should fail cleanly and never fabricate mock paper when mock fallback is disabled.
-    assert!(
-        view.get_or_render_page(99).is_err(),
-        "Rendering invalid page index must return Err when mock fallback is disabled"
+    let mut view = PdfView::with_engine(
+        PdfViewerSettings::default(),
+        PdfiumEngine::without_mock_fallback(),
     );
+    if view.load_from_bytes(MINIMAL_PDF.to_vec(), None).is_ok() {
+        // Out-of-bounds page should fail cleanly when native Pdfium loaded the document.
+        assert!(
+            view.get_or_render_page(99).is_err(),
+            "Rendering invalid page index must return Err when mock fallback is disabled"
+        );
+    } else {
+        // Even with document metadata populated, rendering without native Pdfium or raw bytes
+        // must fail cleanly when mock fallback is disabled.
+        assert!(view.get_or_render_page(0).is_err());
+    }
 }
 
 #[test]

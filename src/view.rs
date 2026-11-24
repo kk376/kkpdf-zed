@@ -551,7 +551,10 @@ mod tests {
 
     #[test]
     fn test_view_get_or_render_rejects_missing_raw_bytes_without_mock() {
-        let mut view = PdfView::with_engine(PdfViewerSettings::default(), PdfiumEngine::new());
+        let mut view = PdfView::with_engine(
+            PdfViewerSettings::default(),
+            PdfiumEngine::without_mock_fallback(),
+        );
         view.document = Some(PdfDocument::new(
             None,
             vec![PageDimensions::new(612.0, 792.0)],

@@ -128,6 +128,9 @@ mod tests {
     fn test_explicit_env_paths_require_absolute() {
         assert!(!is_valid_explicit_path(Path::new("lib/libpdfium.so")));
         assert!(!is_valid_explicit_path(Path::new("./libpdfium.so")));
+        #[cfg(windows)]
+        assert!(is_valid_explicit_path(Path::new(r"C:\pdfium\pdfium.dll")));
+        #[cfg(not(windows))]
         assert!(is_valid_explicit_path(Path::new("/usr/lib64/libpdfium.so")));
     }
 }

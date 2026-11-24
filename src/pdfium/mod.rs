@@ -114,6 +114,13 @@ impl PdfiumEngine {
         engine
     }
 
+    /// Creates an engine handle with synthetic mock fallback explicitly disabled regardless of environment variables.
+    pub fn without_mock_fallback() -> Self {
+        let mut engine = Self::new();
+        engine.allow_mock_fallback = false;
+        engine
+    }
+
     /// Creates an engine handle with no native library loaded and mock fallback enabled (for unit testing mock pipelines).
     pub fn mock() -> Self {
         Self {
