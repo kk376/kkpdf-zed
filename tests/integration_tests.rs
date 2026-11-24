@@ -243,3 +243,87 @@ fn test_lru_cache_memory_accounting_and_stress_eviction() {
     // Most recent pages (e.g. 9) must be present
     assert!(cache.get(&CacheKey::new(9, 1.0, false)).is_some());
 }
+
+#[test]
+fn test_set_zoom_rejects_nan_and_non_positive() {
+    let mut view = PdfView::with_engine(
+        PdfViewerSettings::default(),
+        PdfiumEngine::with_mock_fallback(),
+    );
+    view.load_from_bytes(MINIMAL_PDF.to_vec(), None)
+        .expect("Load minimal PDF");
+    view.set_zoom(2.0, None);
+    assert_eq!(view.zoom_percentage(), 200);
+
+    view.set_zoom(f32::NAN, None);
+    assert_eq!(view.zoom_percentage(), 200, "NaN zoom must be ignored");
+
+    view.set_zoom(0.0, None);
+    assert_eq!(
+        view.zoom_percentage(),
+        200,
+        "Zero zoom must be ignored instead of clamping"
+    );
+
+    view.set_zoom(-1.5, None);
+    assert_eq!(
+        view.zoom_percentage(),
+        200,
+        "Negative zoom must be ignored instead of clamping"
+    );
+}
+
+#[test]
+fn test_restore_snapshot_rejects_invalid_zoom() {
+    let mut view = PdfView::with_engine(
+        PdfViewerSettings::default(),
+        PdfiumEngine::with_mock_fallback(),
+    );
+    view.load_from_bytes(MINIMAL_PDF.to_vec(), None)
+        .expect("Load minimal PDF");
+    view.set_zoom(1.75, None);
+
+    let mut bad_snapshot = view.save_state_snapshot();
+    bad_snapshot.zoom_level = f32::NAN;
+    view.restore_state_snapshot(bad_snapshot);
+    assert_eq!(
+        view.zoom_percentage(),
+        175,
+        "NaN snapshot zoom must not overwrite valid zoom"
+    );
+
+    let mut neg_snapshot = view.save_state_snapshot();
+    neg_snapshot.zoom_level = -2.0;
+    view.restore_state_snapshot(neg_snapshot);
+    assert_eq!(
+        view.zoom_percentage(),
+        175,
+        "Negative snapshot zoom must not overwrite valid zoom"
+    );
+}
+
+#[test]
+fn test_get_or_render_page_errors_without_mock_fallback() {
+    let mut view = PdfView::with_engine(PdfViewerSettings::default(), PdfiumEngine::new());
+    view.load_from_bytes(MINIMAL_PDF.to_vec(), None)
+        .expect("Load minimal PDF");
+
+    // Out-of-bounds page should fail cleanly and never fabricate mock paper when mock fallback is disabled.
+    assert!(
+        view.get_or_render_page(99).is_err(),
+        "Rendering invalid page index must return Err when mock fallback is disabled"
+    );
+}
+
+#[test]
+fn test_open_file_rejects_directory() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let mut view = PdfView::with_engine(
+        PdfViewerSettings::default(),
+        PdfiumEngine::with_mock_fallback(),
+    );
+    assert!(
+        view.open_file(temp_dir.path()).is_err(),
+        "open_file must reject a directory path"
+    );
+}

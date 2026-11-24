@@ -15,6 +15,34 @@ pub struct PdfTextSegment {
     pub height: f32,
 }
 
+fn push_normalized_segment(
+    segments: &mut Vec<PdfTextSegment>,
+    text: String,
+    bounds: (f32, f32, f32, f32),
+    page_dims: (f32, f32),
+) {
+    if text.is_empty() {
+        return;
+    }
+    let (norm_x, norm_y, norm_w, norm_h) = super::links::normalize_coords(
+        bounds.0,
+        bounds.1,
+        bounds.2,
+        bounds.3,
+        page_dims.0,
+        page_dims.1,
+    );
+    if norm_w > 0.0 && norm_h > 0.0 {
+        segments.push(PdfTextSegment {
+            text,
+            x: norm_x,
+            y: norm_y,
+            width: norm_w,
+            height: norm_h,
+        });
+    }
+}
+
 /// Extracts text and segmented word bounding boxes from a single PdfPage.
 pub fn extract_page_text_and_segments(
     page: &PdfPage,
@@ -24,6 +52,7 @@ pub fn extract_page_text_and_segments(
     let mut page_text = String::new();
     let mut segments = Vec::new();
     let mut heuristic_links = Vec::new();
+    let page_dims = (page_w, page_h);
 
     if let Ok(text_page) = page.text() {
         page_text = text_page.all();
@@ -36,43 +65,19 @@ pub fn extract_page_text_and_segments(
                 continue;
             }
 
-            if !seg_trimmed.contains(' ') {
+            if !seg_trimmed.chars().any(char::is_whitespace) {
                 let bounds = seg.bounds();
-                let left = bounds.left().value.min(bounds.right().value);
-                let right = bounds.left().value.max(bounds.right().value);
-                let bottom = bounds.bottom().value.min(bounds.top().value);
-                let top = bounds.bottom().value.max(bounds.top().value);
-
-                let norm_x = if page_w > 0.0 {
-                    (left / page_w).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let norm_y = if page_h > 0.0 {
-                    ((page_h - top) / page_h).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let norm_w = if page_w > 0.0 {
-                    ((right - left) / page_w).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let norm_h = if page_h > 0.0 {
-                    ((top - bottom) / page_h).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-
-                if norm_w > 0.0 && norm_h > 0.0 {
-                    segments.push(PdfTextSegment {
-                        text: seg_trimmed.to_string(),
-                        x: norm_x,
-                        y: norm_y,
-                        width: norm_w,
-                        height: norm_h,
-                    });
-                }
+                push_normalized_segment(
+                    &mut segments,
+                    seg_trimmed.to_string(),
+                    (
+                        bounds.left().value,
+                        bounds.top().value,
+                        bounds.right().value,
+                        bounds.bottom().value,
+                    ),
+                    page_dims,
+                );
                 continue;
             }
 
@@ -90,36 +95,12 @@ pub fn extract_page_text_and_segments(
 
                     if is_ws {
                         if has_word_char && !word_text.is_empty() {
-                            let norm_x = if page_w > 0.0 {
-                                (min_left / page_w).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-                            let norm_y = if page_h > 0.0 {
-                                ((page_h - max_top) / page_h).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-                            let norm_w = if page_w > 0.0 {
-                                ((max_right - min_left) / page_w).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-                            let norm_h = if page_h > 0.0 {
-                                ((max_top - min_bottom) / page_h).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-
-                            if norm_w > 0.0 && norm_h > 0.0 {
-                                segments.push(PdfTextSegment {
-                                    text: std::mem::take(&mut word_text),
-                                    x: norm_x,
-                                    y: norm_y,
-                                    width: norm_w,
-                                    height: norm_h,
-                                });
-                            }
+                            push_normalized_segment(
+                                &mut segments,
+                                std::mem::take(&mut word_text),
+                                (min_left, max_top, max_right, min_bottom),
+                                page_dims,
+                            );
                             word_text.clear();
                             min_left = f32::MAX;
                             max_right = f32::MIN;
@@ -145,72 +126,26 @@ pub fn extract_page_text_and_segments(
                 }
 
                 if has_word_char && !word_text.is_empty() {
-                    let norm_x = if page_w > 0.0 {
-                        (min_left / page_w).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-                    let norm_y = if page_h > 0.0 {
-                        ((page_h - max_top) / page_h).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-                    let norm_w = if page_w > 0.0 {
-                        ((max_right - min_left) / page_w).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-                    let norm_h = if page_h > 0.0 {
-                        ((max_top - min_bottom) / page_h).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-
-                    if norm_w > 0.0 && norm_h > 0.0 {
-                        segments.push(PdfTextSegment {
-                            text: word_text,
-                            x: norm_x,
-                            y: norm_y,
-                            width: norm_w,
-                            height: norm_h,
-                        });
-                    }
+                    push_normalized_segment(
+                        &mut segments,
+                        word_text,
+                        (min_left, max_top, max_right, min_bottom),
+                        page_dims,
+                    );
                 }
             } else {
                 let bounds = seg.bounds();
-                let left = bounds.left().value.min(bounds.right().value);
-                let right = bounds.left().value.max(bounds.right().value);
-                let bottom = bounds.bottom().value.min(bounds.top().value);
-                let top = bounds.bottom().value.max(bounds.top().value);
-
-                let norm_x = if page_w > 0.0 {
-                    (left / page_w).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let norm_y = if page_h > 0.0 {
-                    ((page_h - top) / page_h).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let norm_w = if page_w > 0.0 {
-                    ((right - left) / page_w).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                let norm_h = if page_h > 0.0 {
-                    ((top - bottom) / page_h).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-
-                segments.push(PdfTextSegment {
-                    text: seg_trimmed.to_string(),
-                    x: norm_x,
-                    y: norm_y,
-                    width: norm_w,
-                    height: norm_h,
-                });
+                push_normalized_segment(
+                    &mut segments,
+                    seg_trimmed.to_string(),
+                    (
+                        bounds.left().value,
+                        bounds.top().value,
+                        bounds.right().value,
+                        bounds.bottom().value,
+                    ),
+                    page_dims,
+                );
             }
         }
     }

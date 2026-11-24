@@ -1,6 +1,6 @@
 # `kkpdf-zed`: Native PDF Viewer for Zed Editor
 
-A native, high-performance PDF viewing engine and GPUI workspace item engineered for the [Zed Editor](https://zed.dev).
+A headless PDF rendering engine, bitmap cache, and viewer state library using Pdfium, designed for [Zed Editor](https://zed.dev).
 
 ---
 
@@ -76,7 +76,7 @@ kkpdf-zed/
 ├── rust-toolchain.toml      # Pinned stable toolchain with clippy & rustfmt
 ├── extension.toml           # Extension metadata stub
 ├── README.md                # Architecture, API & operational guide
-├── SECURITY.md              # Zero-trust defensive threat model & security invariants
+├── SECURITY.md              # Defensive threat model & security invariants
 ├── scripts/
 │   └── download_pdfium.sh   # Automated dynamic library fetcher for native builds
 ├── examples/
@@ -93,7 +93,7 @@ kkpdf-zed/
     ├── watcher.rs           # Live-reload debouncer & scroll/zoom state preservation
     ├── pdfium/              # Google Pdfium engine integration
     │   ├── mod.rs           # Engine abstraction, coordination & thread synchronization
-    │   ├── loader.rs        # Zero-trust dynamic library discovery & mock fallback
+    │   ├── loader.rs        # Dynamic library discovery & absolute path validation
     │   ├── render.rs        # Page & composite document rasterization routines
     │   ├── text.rs          # Text extraction & bounding box segmentation
     │   └── links.rs         # Hyperlink & URI annotation extraction

@@ -99,14 +99,35 @@ impl LuminosityToneMapper {
 pub struct PageRasterizer;
 
 impl PageRasterizer {
-    /// Rasterizes a synthetic or mock page buffer for testing and fallback.
+    /// Rasterizes a synthetic placeholder page buffer for testing and fallback.
     pub fn render_mock_page(
         page_index: usize,
         dimensions: PageDimensions,
         options: RasterizerOptions,
     ) -> Result<RenderedPage> {
-        let (width, height) = dimensions.to_pixel_size(options.zoom_factor, options.target_dpi);
-        let total_bytes = (width as usize) * (height as usize) * 4;
+        let (raw_w, raw_h) = dimensions.to_pixel_size(options.zoom_factor, options.target_dpi);
+        let max_dim = crate::pdfium::MAX_PAGE_DIMENSION as u32;
+        let max_side = raw_w.max(raw_h);
+        let (width, height) = if max_side > max_dim {
+            let scale = max_dim as f32 / max_side as f32;
+            (
+                ((raw_w as f32 * scale).round() as u32).max(1),
+                ((raw_h as f32 * scale).round() as u32).max(1),
+            )
+        } else {
+            (raw_w.max(1), raw_h.max(1))
+        };
+
+        let total_bytes = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|px| px.checked_mul(4))
+            .ok_or_else(|| anyhow::anyhow!("Mock page buffer size overflow"))?;
+        if total_bytes > crate::pdfium::MAX_COMPOSITE_BUFFER_BYTES {
+            anyhow::bail!(
+                "Mock page buffer size ({} bytes) exceeds safety budget",
+                total_bytes
+            );
+        }
 
         let mut buffer = vec![255u8; total_bytes];
 

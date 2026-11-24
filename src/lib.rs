@@ -1,6 +1,6 @@
 //! # `kkpdf-zed`
 //!
-//! High-performance native PDF viewing engine and GPUI workspace item for Zed Editor.
+//! Headless PDF rendering engine, LRU bitmap cache, and viewer state library using Pdfium.
 //!
 //! Features:
 //! - Sub-millisecond viewport rendering via bounded LRU memory caching
