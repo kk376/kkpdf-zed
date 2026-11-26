@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,6 +24,7 @@ jobs:
   test:
     name: Test & Lint Suite (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -38,9 +42,19 @@ jobs:
         with:
           shared-key: ${{ matrix.os }}-cargo
 
-      - name: Rustfmt Check
+      - name: Rustfmt & Doc Check
         if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt --check
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: |
+          cargo fmt --check
+          cargo doc --no-deps --all-features
+
+      - name: Lint helper scripts
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          command -v shellcheck >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y shellcheck)
+          shellcheck scripts/download_pdfium.sh
 
       - name: Cache prebuilt Pdfium library
         id: cache-pdfium
@@ -74,6 +88,12 @@ jobs:
           PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
         run: cargo run --example viewer
 
+      - name: Release Build Check
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          PDFIUM_LIB_DIR: "${{ github.workspace }}/lib"
+        run: cargo build --release --all-targets
+
   msrv:
     name: MSRV Verification (1.88.0)
     runs-on: ubuntu-latest
@@ -83,7 +103,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust 1.88.0
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: "1.88.0"
 
