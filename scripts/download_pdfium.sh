@@ -120,7 +120,7 @@ if [[ -f "${TMP_DIR}/bin/${LIB_NAME}" ]]; then
 elif [[ -f "${TMP_DIR}/lib/${LIB_NAME}" ]]; then
     install_atomic "${TMP_DIR}/lib/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755
 elif [[ -f "${TMP_DIR}/${LIB_NAME}" ]]; then
-    install_atomic "${TMP_DIR}/lib/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755 2>/dev/null || install_atomic "${TMP_DIR}/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755
+    install_atomic "${TMP_DIR}/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755
 else
     echo "ERROR: Could not find ${LIB_NAME} inside archive!" >&2
     exit 1
