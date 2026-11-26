@@ -1,8 +1,7 @@
 //! High-level Pdfium engine abstraction, lifecycle manager, and submodules.
 //!
-//! Provides thread-safe document rendering via Google Pdfium C++ engine,
-//! with strict error reporting when native dynamic libraries are missing,
-//! zero-trust library discovery, and explicit opt-in mock fallbacks for testing.
+//! Provides document rendering via Google Pdfium with explicit errors when native
+//! dynamic libraries are missing, path-validated library discovery, and opt-in mock fallbacks.
 
 pub mod links;
 pub mod loader;
@@ -115,6 +114,13 @@ impl PdfiumEngine {
         engine
     }
 
+    /// Creates an engine handle with synthetic mock fallback explicitly disabled regardless of environment variables.
+    pub fn without_mock_fallback() -> Self {
+        let mut engine = Self::new();
+        engine.allow_mock_fallback = false;
+        engine
+    }
+
     /// Creates an engine handle with no native library loaded and mock fallback enabled (for unit testing mock pipelines).
     pub fn mock() -> Self {
         Self {
@@ -126,6 +132,11 @@ impl PdfiumEngine {
     /// Explicitly enables or disables mock fallback for this engine handle.
     pub fn set_allow_mock_fallback(&mut self, allow: bool) {
         self.allow_mock_fallback = allow;
+    }
+
+    /// True if synthetic mock fallback is enabled when native Pdfium is unavailable or unused.
+    pub fn mock_fallback_enabled(&self) -> bool {
+        self.allow_mock_fallback
     }
 
     /// True if native Pdfium C++ bindings are actively loaded.
@@ -183,9 +194,21 @@ impl PdfiumEngine {
         options: RasterizerOptions,
     ) -> Result<RenderedPage> {
         validate_pdf_bytes(bytes)?;
-        let guard = self.inner.lock();
-        if let Some(ref pdfium) = guard.0 {
-            render::render_single_page(pdfium, bytes, page_index, options)
+        let raw_result = {
+            let guard = self.inner.lock();
+            if let Some(ref pdfium) = guard.0 {
+                Some(render::render_single_page_raw(
+                    pdfium, bytes, page_index, options,
+                )?)
+            } else {
+                None
+            }
+        };
+
+        if let Some((w, h, rgba)) = raw_result {
+            Ok(render::finalize_rendered_page(
+                page_index, w, h, rgba, options,
+            ))
         } else if self.allow_mock_fallback {
             render::render_mock_single_page(page_index, options)
         } else {
@@ -205,9 +228,24 @@ impl PdfiumEngine {
         page_gap: u32,
     ) -> Result<RenderedPage> {
         validate_pdf_bytes(bytes)?;
-        let guard = self.inner.lock();
-        if let Some(ref pdfium) = guard.0 {
-            render::render_document_range(pdfium, bytes, start_page, page_budget, options, page_gap)
+        let raw_pages = {
+            let guard = self.inner.lock();
+            if let Some(ref pdfium) = guard.0 {
+                Some(render::render_document_range_raw(
+                    pdfium,
+                    bytes,
+                    start_page,
+                    page_budget,
+                    options,
+                    page_gap,
+                )?)
+            } else {
+                None
+            }
+        };
+
+        if let Some(pages) = raw_pages {
+            render::finalize_composite_pages(start_page, pages, options, page_gap)
         } else if self.allow_mock_fallback {
             render::render_mock_document_range(bytes, start_page, page_budget, options, page_gap)
         } else {
@@ -310,16 +348,26 @@ impl PdfiumEngine {
         }
     }
 
-    /// Renders all pages and extracts text/links in a single fast pass over the loaded document.
+    /// Renders all pages and extracts text/links in a single pass over the loaded document.
     pub fn render_and_extract_document_from_bytes(
         &self,
         bytes: &[u8],
         options: RasterizerOptions,
     ) -> Result<PdfDocumentRenderResult> {
         validate_pdf_bytes(bytes)?;
-        let guard = self.inner.lock();
-        if let Some(ref pdfium) = guard.0 {
-            render::render_and_extract_document(pdfium, bytes, options)
+        let raw_result = {
+            let guard = self.inner.lock();
+            if let Some(ref pdfium) = guard.0 {
+                Some(render::render_and_extract_document_raw(
+                    pdfium, bytes, options,
+                )?)
+            } else {
+                None
+            }
+        };
+
+        if let Some(raw) = raw_result {
+            Ok(render::finalize_document_extract_result(raw, options))
         } else if self.allow_mock_fallback {
             let doc = PdfDocument::from_bytes(bytes, None)?;
             let total_pages = doc.total_pages();

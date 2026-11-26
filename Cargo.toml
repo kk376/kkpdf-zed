@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.88.0"
 authors = ["Kushagra Kumar <kkushagra86@gmail.com>"]
 license = "Apache-2.0 OR GPL-3.0-or-later"
-description = "High-performance native PDF viewing engine and GPUI workspace item for Zed Editor"
+description = "Headless PDF rendering engine, cache, and viewer state library using Pdfium"
 repository = "https://github.com/kk376/kkpdf-zed"
 readme = "README.md"
 exclude = [".github/"]
@@ -15,12 +15,12 @@ anyhow = "1.0"
 log = "0.4"
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
-pdfium-render = { version = "0.9", features = ["image_025"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+pdfium-render = "0.9"
 
 [dev-dependencies]
 tempfile = "3.27"
 serde_json = "1.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

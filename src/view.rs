@@ -41,11 +41,16 @@ impl PdfView {
 
     /// Creates a new PDF view with an explicit `PdfiumEngine` handle.
     pub fn with_engine(settings: PdfViewerSettings, engine: PdfiumEngine) -> Self {
-        let cache_bytes = settings.cache_budget_mb * 1024 * 1024;
+        let budget_mb = if settings.cache_budget_mb == 0 {
+            DEFAULT_MEMORY_BUDGET_BYTES / (1024 * 1024)
+        } else {
+            settings.cache_budget_mb
+        };
+        let cache_bytes = budget_mb.saturating_mul(1024 * 1024);
         Self {
             document: None,
             engine,
-            cache: PageLruCache::new(cache_bytes.max(DEFAULT_MEMORY_BUDGET_BYTES)),
+            cache: PageLruCache::new(cache_bytes),
             zoom_level: 1.0,
             pan_offset: (0.0, 0.0),
             current_page: 0,
@@ -66,15 +71,31 @@ impl PdfView {
 
     /// Loads a PDF document from file path.
     pub fn open_file(&mut self, path: &Path) -> Result<()> {
+        let metadata = std::fs::metadata(path)
+            .with_context(|| format!("Failed to inspect PDF file at {:?}", path))?;
+        if !metadata.is_file() {
+            anyhow::bail!("PDF path is not a regular file: {}", path.display());
+        }
+        const MAX_PDF_FILE_BYTES: u64 = 256 * 1024 * 1024;
+        if metadata.len() > MAX_PDF_FILE_BYTES {
+            anyhow::bail!(
+                "PDF file exceeds maximum supported size ({} > {} bytes): {}",
+                metadata.len(),
+                MAX_PDF_FILE_BYTES,
+                path.display()
+            );
+        }
+
         let bytes = std::fs::read(path)
             .with_context(|| format!("Failed to read PDF file at {:?}", path))?;
 
-        self.debouncer = Some(PdfReloadDebouncer::new(
-            path.to_path_buf(),
-            self.settings.reload_debounce_ms,
-        ));
+        self.load_from_bytes(bytes, Some(path.to_path_buf()))?;
 
-        self.load_from_bytes(bytes, Some(path.to_path_buf()))
+        let mut debouncer =
+            PdfReloadDebouncer::new(path.to_path_buf(), self.settings.reload_debounce_ms);
+        debouncer.mark_reloaded();
+        self.debouncer = Some(debouncer);
+        Ok(())
     }
 
     /// Loads a PDF document from raw byte buffer.
@@ -135,8 +156,20 @@ impl PdfView {
                 .current_page
                 .min(doc.total_pages().saturating_sub(1));
         }
-        self.zoom_level = snapshot.zoom_level.clamp(MIN_ZOOM, MAX_ZOOM);
-        self.pan_offset = (snapshot.pan_x, snapshot.pan_y);
+        if snapshot.zoom_level.is_finite() && snapshot.zoom_level > 0.0 {
+            self.zoom_level = snapshot.zoom_level.clamp(MIN_ZOOM, MAX_ZOOM);
+        }
+        let pan_x = if snapshot.pan_x.is_finite() {
+            snapshot.pan_x
+        } else {
+            self.pan_offset.0
+        };
+        let pan_y = if snapshot.pan_y.is_finite() {
+            snapshot.pan_y
+        } else {
+            self.pan_offset.1
+        };
+        self.pan_offset = (pan_x, pan_y);
     }
 
     /// Sets the viewport container size and updates fit-to-width/fit-to-page if on first layout.
@@ -241,6 +274,9 @@ impl PdfView {
 
     /// Sets zoom with mouse focal point anchoring.
     pub fn set_zoom(&mut self, new_zoom: f32, focal_center: Option<(f32, f32)>) {
+        if !new_zoom.is_finite() || new_zoom <= 0.0 {
+            return;
+        }
         let old_zoom = self.zoom_level;
         let clamped = new_zoom.clamp(MIN_ZOOM, MAX_ZOOM);
         if (clamped - old_zoom).abs() < f32::EPSILON {
@@ -312,7 +348,26 @@ impl PdfView {
 
     /// Renders or fetches cached bitmap for a page.
     pub fn get_or_render_page(&mut self, page_index: usize) -> Result<RenderedPage> {
-        let key = CacheKey::new(page_index, self.zoom_level, self.dark_mode);
+        let total_pages = self
+            .document
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No PDF document loaded"))?
+            .total_pages();
+        if page_index >= total_pages {
+            anyhow::bail!(
+                "Requested page index {} out of bounds (total: {})",
+                page_index,
+                total_pages
+            );
+        }
+
+        let key = CacheKey::with_render_params(
+            page_index,
+            self.zoom_level,
+            self.dark_mode,
+            self.settings.target_dpi,
+            self.settings.saturation_threshold,
+        );
         if let Some(cached) = self.cache.get(&key) {
             return Ok(cached);
         }
@@ -327,13 +382,15 @@ impl PdfView {
         let rendered = if let Some(ref raw) = self.raw_bytes {
             self.engine
                 .render_page_from_bytes(raw, page_index, options)?
-        } else {
+        } else if self.engine.mock_fallback_enabled() {
             let dim = self
                 .document
                 .as_ref()
                 .and_then(|d| d.page_size(page_index))
                 .unwrap_or(PageDimensions::new(612.0, 792.0));
             crate::rasterizer::PageRasterizer::render_mock_page(page_index, dim, options)?
+        } else {
+            anyhow::bail!("PDF raw bytes unavailable and mock fallback disabled")
         };
 
         self.cache.insert(key, rendered.clone());
@@ -480,5 +537,29 @@ mod tests {
 
         view.handle_mouse_up();
         assert!(!view.is_dragging());
+    }
+
+    #[test]
+    fn test_view_honors_configured_cache_budget_below_default() {
+        let settings = PdfViewerSettings {
+            cache_budget_mb: 16,
+            ..Default::default()
+        };
+        let view = PdfView::new(settings);
+        assert_eq!(view.cache.max_memory(), 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_view_get_or_render_rejects_missing_raw_bytes_without_mock() {
+        let mut view = PdfView::with_engine(
+            PdfViewerSettings::default(),
+            PdfiumEngine::without_mock_fallback(),
+        );
+        view.document = Some(PdfDocument::new(
+            None,
+            vec![PageDimensions::new(612.0, 792.0)],
+            None,
+        ));
+        assert!(view.get_or_render_page(0).is_err());
     }
 }

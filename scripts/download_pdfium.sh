@@ -6,7 +6,7 @@ set -euo pipefail
 # Source: bblanchon/pdfium-binaries (Chromium 8138)
 
 VERSION="8138"
-RELEASE_TAG="chromium%2F8138"
+RELEASE_TAG="chromium%2F${VERSION}"
 BASE_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/${RELEASE_TAG}"
 
 TARGET_DIR="${1:-${HOME}/.local/share/kkpdf-zed/lib}"
@@ -80,7 +80,7 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 ARCHIVE_PATH="${TMP_DIR}/${ARCHIVE}"
 
 echo "==> Downloading from ${BASE_URL}/${ARCHIVE}..."
-curl -sSL --fail "${BASE_URL}/${ARCHIVE}" -o "${ARCHIVE_PATH}"
+curl --proto '=https' --tlsv1.2 -fsSL "${BASE_URL}/${ARCHIVE}" -o "${ARCHIVE_PATH}"
 
 echo "==> Verifying SHA256 checksum..."
 if command -v sha256sum >/dev/null 2>&1; then
@@ -104,20 +104,30 @@ mkdir -p "${TARGET_DIR}"
 echo "==> Extracting ${LIB_NAME} to ${TARGET_DIR}..."
 tar -xzf "${ARCHIVE_PATH}" -C "${TMP_DIR}"
 
+install_atomic() {
+    local src="$1"
+    local dst="$2"
+    local mode="$3"
+    local tmp_dst
+    tmp_dst="$(mktemp "${TARGET_DIR}/.$(basename "${dst}").XXXXXX")"
+    cp -f "${src}" "${tmp_dst}"
+    chmod "${mode}" "${tmp_dst}"
+    mv -f "${tmp_dst}" "${dst}"
+}
+
 if [[ -f "${TMP_DIR}/bin/${LIB_NAME}" ]]; then
-    cp -f "${TMP_DIR}/bin/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}"
+    install_atomic "${TMP_DIR}/bin/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755
 elif [[ -f "${TMP_DIR}/lib/${LIB_NAME}" ]]; then
-    cp -f "${TMP_DIR}/lib/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}"
+    install_atomic "${TMP_DIR}/lib/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755
 elif [[ -f "${TMP_DIR}/${LIB_NAME}" ]]; then
-    cp -f "${TMP_DIR}/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}"
+    install_atomic "${TMP_DIR}/lib/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755 2>/dev/null || install_atomic "${TMP_DIR}/${LIB_NAME}" "${TARGET_DIR}/${LIB_NAME}" 755
 else
     echo "ERROR: Could not find ${LIB_NAME} inside archive!" >&2
     exit 1
 fi
 
 if [[ -f "${TMP_DIR}/lib/${LIB_NAME}.lib" ]]; then
-    cp -f "${TMP_DIR}/lib/${LIB_NAME}.lib" "${TARGET_DIR}/${LIB_NAME}.lib"
+    install_atomic "${TMP_DIR}/lib/${LIB_NAME}.lib" "${TARGET_DIR}/${LIB_NAME}.lib" 644
 fi
 
-chmod 755 "${TARGET_DIR}/${LIB_NAME}"
 echo "==> Installed ${TARGET_DIR}/${LIB_NAME} successfully."

@@ -43,7 +43,7 @@ pub struct PdfViewerSettings {
     pub cache_budget_mb: usize,
     /// Debounce duration in milliseconds for hot-reloading when PDF file changes on disk.
     pub reload_debounce_ms: u64,
-    /// High-DPI rasterization multiplier for ultra-crisp typography.
+    /// Target DPI used when rasterizing PDF pages to bitmaps.
     pub target_dpi: f32,
 }
 

@@ -9,22 +9,61 @@ use std::sync::Arc;
 /// Default maximum memory budget: 256 Megabytes.
 pub const DEFAULT_MEMORY_BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
-/// Cache lookup key capturing page index, discrete zoom bucket, and dark-mode setting.
+/// Default saturation threshold aligned with `PdfViewerSettings::default()`.
+const DEFAULT_SATURATION_THRESHOLD: f32 = 0.18;
+const DEFAULT_TARGET_DPI: f32 = 144.0;
+
+/// Cache lookup key capturing page index, zoom, dark-mode, DPI, and tone-mapper threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CacheKey {
     pub page_index: usize,
     pub zoom_bucket: u32,
     pub dark_mode: bool,
+    pub dpi_bucket: u32,
+    pub saturation_bucket: u32,
 }
 
 impl CacheKey {
-    /// Creates a new cache key with zoom discretized to 2 decimal places (e.g. 1.25 -> 125).
+    /// Creates a new cache key with zoom discretized to 2 decimal places using default DPI/threshold.
     pub fn new(page_index: usize, zoom_factor: f32, dark_mode: bool) -> Self {
-        let zoom_bucket = (zoom_factor * 100.0).round().max(1.0) as u32;
+        Self::with_render_params(
+            page_index,
+            zoom_factor,
+            dark_mode,
+            DEFAULT_TARGET_DPI,
+            DEFAULT_SATURATION_THRESHOLD,
+        )
+    }
+
+    /// Creates a cache key including rasterization DPI and tone-mapping threshold.
+    pub fn with_render_params(
+        page_index: usize,
+        zoom_factor: f32,
+        dark_mode: bool,
+        target_dpi: f32,
+        saturation_threshold: f32,
+    ) -> Self {
+        let zoom_clean = if zoom_factor.is_finite() && zoom_factor > 0.0 {
+            zoom_factor
+        } else {
+            1.0
+        };
+        let dpi_clean = if target_dpi.is_finite() && target_dpi > 0.0 {
+            target_dpi
+        } else {
+            DEFAULT_TARGET_DPI
+        };
+        let sat_clean = if saturation_threshold.is_finite() {
+            saturation_threshold.clamp(0.0, 1.0)
+        } else {
+            DEFAULT_SATURATION_THRESHOLD
+        };
         Self {
             page_index,
-            zoom_bucket,
+            zoom_bucket: (zoom_clean * 100.0).round().max(1.0) as u32,
             dark_mode,
+            dpi_bucket: (dpi_clean * 10.0).round().max(1.0) as u32,
+            saturation_bucket: (sat_clean * 100.0).round() as u32,
         }
     }
 }
@@ -60,10 +99,45 @@ impl RenderedPage {
         }
     }
 
-    /// Returns the exact memory footprint of this bitmap in bytes (width * height * 4).
+    /// Constructs a RenderedPage after validating that the RGBA byte length matches dimensions.
+    pub fn try_new(
+        page_index: usize,
+        width: u32,
+        height: u32,
+        zoom_factor: f32,
+        dark_mode: bool,
+        rgba_buffer: Vec<u8>,
+    ) -> anyhow::Result<Self> {
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|px| px.checked_mul(4))
+            .ok_or_else(|| anyhow::anyhow!("RenderedPage byte size overflow"))?;
+        if rgba_buffer.len() != expected {
+            anyhow::bail!(
+                "RenderedPage RGBA buffer length mismatch: expected {} bytes for {}x{}, got {}",
+                expected,
+                width,
+                height,
+                rgba_buffer.len()
+            );
+        }
+        Ok(Self::new(
+            page_index,
+            width,
+            height,
+            zoom_factor,
+            dark_mode,
+            rgba_buffer,
+        ))
+    }
+
+    /// Returns the memory footprint of this bitmap in bytes.
     #[inline]
     pub fn byte_size(&self) -> usize {
-        (self.width as usize) * (self.height as usize) * 4
+        let pixel_bytes = (self.width as usize)
+            .saturating_mul(self.height as usize)
+            .saturating_mul(4);
+        self.rgba_buffer.len().max(pixel_bytes)
     }
 }
 
@@ -436,5 +510,20 @@ mod tests {
         assert!(cache.get(&key).is_none());
         assert!(cache.get(&key1).is_some());
         assert!(cache.get(&key2).is_some());
+    }
+
+    #[test]
+    fn test_cache_key_distinguishes_dpi_and_saturation() {
+        let base = CacheKey::with_render_params(0, 1.0, true, 144.0, 0.18);
+        let hi_dpi = CacheKey::with_render_params(0, 1.0, true, 288.0, 0.18);
+        let alt_sat = CacheKey::with_render_params(0, 1.0, true, 144.0, 0.50);
+        assert_ne!(base, hi_dpi);
+        assert_ne!(base, alt_sat);
+    }
+
+    #[test]
+    fn test_rendered_page_try_new_validates_len() {
+        assert!(RenderedPage::try_new(0, 2, 2, 1.0, false, vec![0u8; 16]).is_ok());
+        assert!(RenderedPage::try_new(0, 2, 2, 1.0, false, vec![0u8; 8]).is_err());
     }
 }
